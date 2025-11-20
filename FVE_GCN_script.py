@@ -151,7 +151,7 @@ class GCN_new(torch.nn.Module):
 
 class GCN_new2(torch.nn.Module):
     def __init__(self, num_node_features, hidden_dim1=256, hidden_dim2=128, hidden_dim3=64, hidden_dim4=32, pool_ratio=0.6):
-        super(GCN_new, self).__init__()
+        super(GCN_new2, self).__init__()
         
         # GCN + pooling layers
         self.conv1 = GCNConv(num_node_features, hidden_dim1, bias=True)
@@ -369,7 +369,7 @@ def main(args):
 
     with open(f"GCN_models/{job_full_nickname}.txt", "w") as f:
         print(f"Writing model output... using device: {device}", file=f, flush=True)
-        print("{}".format(args).replace(', ', ',\n'))
+        print("{}".format(args).replace(', ', ',\n'), file=f, flush=True)
         #print(
         #    f"epochs={args.epochs}, lr={args.lr}, wd={args.weight_decay}, patience={args.patience}, batch_size={args.batch_size}, "
         #    f"norm_y={args.norm_y}, icld_age_sex={args.icld_age_sex}, partial={args.partial_dat}, partial_tsa={args.partial_tsa_dat}, "
@@ -411,6 +411,8 @@ def main(args):
             norm_y=args.norm_y,
             icld_age_sex=args.icld_age_sex,
             batch_size=args.batch_size,
+            fs_mapping = args.fs_mapping,
+            non_surface_area_vars = non_surface_area_vars
         )
 
 
@@ -491,6 +493,6 @@ if __name__ == "__main__":
     parser.add_argument("--icld_age_sex", action="store_true")
     parser.add_argument("--scaler_name", type=str, default="standard",
                         choices=["standard", "minmax"],)
-
+    parser.add_argument("--fs_mapping", action="store_true", default=False)
     args = parser.parse_args()
     main(args)

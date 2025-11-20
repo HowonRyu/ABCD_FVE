@@ -14,10 +14,15 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 import time
 from torch_geometric.nn import NNConv as MyNNConv, TopKPooling
-import scipy.io
 import scipy.sparse as sp
 from torch_geometric.data import Data
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
+import scipy.io
+from nilearn import datasets, surface
+from scipy.spatial import distance
+from scipy.optimize import linear_sum_assignment
+
 
 import torch
 import torch.nn.functional as F
@@ -86,21 +91,84 @@ def build_surface_adjacency(coords, faces):
     return A
 
 
+def map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_orgs_left, vertices_coords_orgs_right, non_surface_area_vars):
+    # calculate the mapping
+    dist_matrix_left = distance.cdist(vertices_coords_orgs_left, coords_fs_left, 'euclidean')
+    dist_matrix_right = distance.cdist(vertices_coords_orgs_right, coords_fs_right, 'euclidean')
+
+    # mapping from original -> freesurfer (col is the assignment to free surfer index)
+    row_ind_left, col_ind_left = linear_sum_assignment(dist_matrix_left)
+    row_ind_right, col_ind_right = linear_sum_assignment(dist_matrix_right)
+
+    ## create new df conforming to fs
+    left_cols = [c for c in FVE_df_old_X.columns if c.endswith('_l')]
+    right_cols = [c for c in FVE_df_old_X.columns if c.endswith('_r')]
+    left_cols = sorted(left_cols, key=lambda x: int(x.split('_')[0]))
+    right_cols = sorted(right_cols, key=lambda x: int(x.split('_')[0]))
+
+    # Extract data as numpy arrays
+    FVE_df_fs_X = pd.DataFrame(index=FVE_df_old_X.index)
+
+    for i, new_idx in enumerate(col_ind_left):
+        old_col = f"{i}_l"          
+        new_col = f"{new_idx}_l"    
+        FVE_df_fs_X[new_col] = FVE_df_old_X[old_col]
+
+    for i, new_idx in enumerate(col_ind_right):
+        old_col = f"{i}_r"
+        new_col = f"{new_idx}_r"
+        FVE_df_fs_X[new_col] = FVE_df_old_X[old_col]
 
 
+    FVE_df_fs_X = FVE_df_fs_X.reindex(sorted(FVE_df_fs_X.columns, key=lambda x: (x.split("_")[1], int(x.split("_")[0]))), axis=1)
+    FVE_df = pd.concat([FVE_df_fs_X, FVE_df_old_X[non_surface_area_vars]], axis=1)
 
-def input_to_graph(SurfeView_surfaces, FVE_df_all, norm_y=False, scaler="minmax",
+    return FVE_df
+
+
+def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, norm_y=False, scaler="minmax", fs_mapping=False,
                    partial_dat=False, partial_tsa_dat=False, icld_age_sex=False, batch_size=20):
 
 
-    vertices, faces = load_surface_mesh(SurfeView_surfaces)
-    # graph structure
-    A_csr = build_surface_adjacency(vertices, faces)
-    edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
+    if fs_mapping:
+        # original mapping
+        vertices_coords_orgs, faces_orgs = load_surface_mesh(SurfeView_surfaces)
+        vertices_coords_orgs_left = vertices_coords_orgs[:10242]
+        vertices_coords_orgs_right = vertices_coords_orgs[10242:]
+
+        # FreeSurfer
+        fsaverage = datasets.fetch_surf_fsaverage('fsaverage5')
+        coords_fs_left, faces_fs_left = surface.load_surf_mesh(fsaverage.pial_left)
+        coords_fs_right, faces_fs_right = surface.load_surf_mesh(fsaverage.pial_right)
+        vertices_coords = np.vstack([coords_fs_left, coords_fs_right])
+        faces = np.vstack([faces_fs_left, faces_fs_right+10242])
 
 
-    # clean FVE_df of no NAs
-    FVE_df = FVE_df_all.dropna()
+        # graph structure
+        A_csr = build_surface_adjacency(vertices_coords, faces)
+        edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
+
+    else:
+        # original mapping
+        vertices_coords, faces = load_surface_mesh(SurfeView_surfaces)
+        # graph structure
+        A_csr = build_surface_adjacency(vertices_coords, faces)
+        edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
+
+
+    # define x columns
+    x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
+
+    if (not partial_dat and not partial_tsa_dat):
+        x_cols.append("interview_age")
+        x_cols.append("sex_2")
+
+
+    if fs_mapping:
+        FVE_df_old_X = FVE_df_all.dropna()
+        FVE_df = map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_orgs_left, vertices_coords_orgs_right, non_surface_area_vars)
+    else:
+        FVE_df = FVE_df_all.dropna()
 
 
     # train, val, test split
@@ -108,13 +176,6 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, norm_y=False, scaler="minmax"
     train, val = train_test_split(train_valid, test_size=0.2, random_state=42)
     
     
-    # define x columns
-    
-    x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
-
-    if (not partial_dat and not partial_tsa_dat):
-        x_cols.append("interview_age")
-        x_cols.append("sex_2")
 
     # Normalization
     X_train = train[x_cols]
@@ -154,11 +215,11 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, norm_y=False, scaler="minmax"
     
     # Graph
     train_graph = create_graph_data(X_all=X_train_scaled, y=torch.Tensor(y_train_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                            edge_index = edge_index, vertices = torch.FloatTensor(vertices), icld_age_sex=icld_age_sex)
+                            edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)
     validation_graph = create_graph_data(X_all=X_val_scaled, y=torch.Tensor(y_val_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices), icld_age_sex=icld_age_sex)
+                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)
     test_graph = create_graph_data(X_all=X_test_scaled, y=torch.Tensor(y_test_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices), icld_age_sex=icld_age_sex)    
+                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)    
 
 
     # Loaders
