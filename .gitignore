@@ -10,11 +10,13 @@ Rlibs/
 scripts_archive/
 sh_scripts/
 data_out/
+PCA_output/
 FVE_GCN_CNN_archive.ipynb
 data_preprocessing.R
 FVE_GCN_CNN.ipynb
 .RData
 .Rhistory
+
 
 
 # Byte-compiled / optimized / DLL files
