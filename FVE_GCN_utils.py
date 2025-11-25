@@ -269,3 +269,37 @@ def create_graph_data(X_all, y, edge_index, vertices, partial_dat=False, partial
 
 
 
+def summarize_by_brain_region(df, data_l, data_r):
+
+    df_l = df[[f"{i}_l" for i in range(len(data_l))]].copy()
+    df_r = df[[f"{i}_r" for i in range(len(data_r))]].copy()
+
+    X_l = df_l.to_numpy()  
+    X_r = df_r.to_numpy()  
+
+    # All labels
+    unique_labels = np.unique(np.concatenate([data_l, data_r]))
+
+    result = {}
+
+    for label in unique_labels:
+
+        # indices in each hemisphere
+        idx_l = np.where(data_l == label)[0]
+        idx_r = np.where(data_r == label)[0]
+
+        # gather data for all vertices with this label
+        verts = []
+        if len(idx_l) > 0:
+            verts.append(X_l[:, idx_l])
+        if len(idx_r) > 0:
+            verts.append(X_r[:, idx_r])
+
+        # concatenate across vertices (second axis)
+        combined = np.concatenate(verts, axis=1)  # shape: (N, n_vertices_for_label)
+
+        # average across vertices
+        result[f"label_{label}"] = combined.mean(axis=1)
+
+    # final summarized df
+    return pd.DataFrame(result, index=df.index)

@@ -50,11 +50,10 @@ scale_and_pca = function(df) {
   return(pca_output)
 } 
 
-proc_pca_output = function(train_df, test_df, pca_train_output, pca_test_output, n_pcs) {
-  
+proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output, n_pcs, name) {
   #plotting
   cumulative_ve = cumsum(pca_train_output$sdev^2 / sum(pca_train_output$sdev^2))
-  png(filename=paste0(wd, "PCA_output/partial_cve_plot"))
+  png(filename=paste0(wd, "/PCA_output/", name, "_fve_plot.png"))
   plot(cumulative_ve, main=paste0("(train) Prop var. explained at PC", n_pcs,
                                   " = ", round(cumulative_ve[n_pcs],3)),
        ylab="cumulative prop var explained",
@@ -63,18 +62,22 @@ proc_pca_output = function(train_df, test_df, pca_train_output, pca_test_output,
   
   
   # get FVE from the linear model
-  pcs_train = pca_train_output$x[, 1:n_pcs]
-  pcs_test = pca_test_output$x[, 1:n_pcs]
+  pcs_train = as.data.frame(pca_train_output$x[, 1:n_pcs])
+  pcs_test =  as.data.frame(pca_test_output$x[, 1:n_pcs])
   
-  outcome_y_train = train_df$nihtbx_cryst_uncorrected
-  outcome_y_test = test_df$nihtbx_cryst_uncorrected
+  pcs_train$nihtbx_cryst_uncorrected = train_df$nihtbx_cryst_uncorrected
+  pcs_test$nihtbx_cryst_uncorrected = test_df$nihtbx_cryst_uncorrected
+
+  pca_train_lin = lm(nihtbx_cryst_uncorrected ~ ., data = pcs_train)
+  pca_test_lin = lm(nihtbx_cryst_uncorrected ~ ., data = pcs_test)
   
-  pca_train_lin = lm(outcome_y_train ~ pcs_train)
+  train_rsq = summary(pca_train_lin)$r.squared
+  test_rsq = summary(pca_test_lin)$r.squared
   
-  test_pred_y = predict(pca_lin, pcs_test)
-  
-  test_rsq = my_R2(outcome_y_test, test_pred_y)
-  return(test_rsq)
+  #test_pred_y = predict(pca_train_lin, pcs_test)
+  #outcome_y_test = pcs_test$nihtbx_cryst_uncorrected
+  #test_rsq = my_R2(outcome_y_test, test_pred_y)
+  return(c(train_rsq, test_rsq))
 }
 
 ##########################  Var estimation Bootstrap  ########################## 
@@ -101,6 +104,10 @@ all_models = list()
 reg_test_r2 = c()
 partial_test_r2 = c()
 partial_tsa_test_r2 = c()
+reg_train_r2 = c()
+partial_train_r2 = c()
+partial_tsa_train_r2 = c()
+
 
 # Loop through each bootstrap resample
 for (b in 1:B) {
@@ -127,16 +134,17 @@ for (b in 1:B) {
   print(paste0("regular data PCA done at ", Sys.time()))
   
   
-  regular_rsq = proc_pca_output(reg_train_data, reg_test_data, train_pca, test_pca, n_pcs)
-  reg_test_r2 = c(reg_test_r2, regular_rsq)
+  regular_rsq = proc_pca_output(reg_train_data, reg_test_data, train_pca, test_pca, n_pcs, "regular")
+  reg_test_r2 = c(reg_test_r2, regular_rsq[1])
+  reg_train_r2 = c(reg_train_r2, regular_rsq[2])
   
   
   if (B==1) {
     save(train_pca, file=paste0(wd, "/PCA_output/PCA_train_result.Rdata"))
     save(test_pca, file=paste0(wd, "/PCA_output/PCA_test_result.Rdata"))
   } else {
-    all_models[[paste0("PCA_train", b)]] = train_pca
-    all_models[[paste0("PCA_test", b)]] = test_pca
+    #all_models[[paste0("PCA_train", b)]] = train_pca
+    #all_models[[paste0("PCA_test", b)]] = test_pca
   }
   
   
@@ -158,16 +166,17 @@ for (b in 1:B) {
   test_pca_p = scale_and_pca(reg_test_data_partial)
   print(paste0("partial data PCA done at ",Sys.time()))
   
-  partial_rsq = proc_pca_output(reg_train_data_partial, reg_test_data_partial, train_pca_p, test_pca_p, n_pcs)
-  partial_test_r2 = c(partial_test_r2, partial_rsq)
+  partial_rsq = proc_pca_output(reg_train_data_partial, reg_test_data_partial, train_pca_p, test_pca_p, n_pcs, "partial")
+  partial_test_r2 = c(partial_test_r2, partial_rsq[2])
+  partial_train_r2 = c(partial_train_r2, partial_rsq[1])
   
   
   if (B==1) {
     save(train_pca_p, file=paste0(wd, "/PCA_output/PCA_partial_train_result.Rdata"))
     save(test_pca_p, file=paste0(wd, "/PCA_output/PCA_partial_test_result.Rdata"))
   } else {
-    all_models[[paste0("PCA_p_train", b)]] = train_pca_p
-    all_models[[paste0("PCA_p_test", b)]] = test_pca_p
+    #all_models[[paste0("PCA_p_train", b)]] = train_pca_p
+    #all_models[[paste0("PCA_p_test", b)]] = test_pca_p
   }
   
   # partial_tsa
@@ -189,21 +198,23 @@ for (b in 1:B) {
   test_pca_p_tsa = scale_and_pca(reg_test_data_partial_tsa)
   print(paste0("partial_tsa data PCA done at ",Sys.time()))
   
-  partial_tsa_rsq = proc_pca_output(reg_train_data_partial_tsa, reg_test_data_partial_tsa, train_pca_p_tsa, test_pca_p_tsa, n_pcs)
-  partial_tsa_test_r2 = c(partial_tsa_test_r2, partial_tsa_rsq)
+  partial_tsa_rsq = proc_pca_output(reg_train_data_partial_tsa, reg_test_data_partial_tsa, train_pca_p_tsa, test_pca_p_tsa, n_pcs, "partial_tsa")
+  partial_tsa_test_r2 = c(partial_tsa_test_r2, partial_tsa_rsq[2])
+  partial_tsa_train_r2 = c(partial_tsa_train_r2, partial_tsa_rsq[1])
   
   if (B==1) {
     save(train_pca_p_tsa, file=paste0(wd, "/PCA_output/PCA_partial_tsa_train_result.Rdata"))
     save(test_pca_p_tsa, file=paste0(wd, "/PCA_output/PCA_partial_tsa_test_result.Rdata"))
   } else {
-    all_models[[paste0("PCA_p_tsa_train", b)]] = train_pca_p_tsa
-    all_models[[paste0("PCA_p_tsa_test", b)]] = test_pca_p_tsa
+    #all_models[[paste0("PCA_p_tsa_train", b)]] = train_pca_p_tsa
+    #all_models[[paste0("PCA_p_tsa_test", b)]] = test_pca_p_tsa
   }
   
 }
 
 
-result_dict_boot <- list(reg_test_r2 = reg_test_r2, partial_test_r2 = partial_test_r2, partial_tsa_test_r2 = partial_tsa_test_r2)
+result_dict_boot <- list(reg_test_r2 = reg_test_r2, partial_test_r2 = partial_test_r2, partial_tsa_test_r2 = partial_tsa_test_r2,
+reg_train_r2 = reg_train_r2, partial_train_r2 = partial_train_r2, partial_tsa_train_r2 = partial_tsa_train_r2)
 
 result_tbl_boot <- data.frame(
   variable = names(result_dict_boot),
@@ -215,8 +226,7 @@ save(result_tbl_boot, file=paste0(wd, "/PCA_output/result_tbl_boot_", B, ".Rdata
 
 
 if (B!=1) {
-  save(all_models, file=paste0(wd, "/PCA_output/PCA_all_models_", B, ".Rdata"))
-  
+  #save(all_models, file=paste0(wd, "/PCA_output/PCA_all_models_", B, ".Rdata"))
 
 } 
 
