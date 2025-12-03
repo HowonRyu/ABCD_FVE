@@ -1,6 +1,7 @@
-install.packages(c("dplyr", "readr"))
+install.packages(c("dplyr", "readr", "rsample"))
 library(dplyr)
 library(readr)
+library(rsample)
 #library(tidyverse)
 #.libPaths("/data/howon/FVE/Rlibs")
 
@@ -50,6 +51,8 @@ scale_and_pca = function(df) {
   return(pca_output)
 } 
 
+
+
 proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output, n_pcs, name) {
   #plotting
   cumulative_ve = cumsum(pca_train_output$sdev^2 / sum(pca_train_output$sdev^2))
@@ -63,12 +66,20 @@ proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output
   
   # get FVE from the linear model
   pcs_train = as.data.frame(pca_train_output$x[, 1:n_pcs])
-  pcs_test =  as.data.frame(pca_test_output$x[, 1:n_pcs])
+  train_eigenvects = pca_train_output$rotation[, 1:n_pcs]
+  X_test_df = test_df %>% select(-nihtbx_cryst_uncorrected)
+
+  print(dim(train_eigenvects))
+  print(dim(as.matrix(X_test_df)))
   
+  pcs_test = as.data.frame((as.matrix(X_test_df) %*% train_eigenvects))
+  
+
   pcs_train$nihtbx_cryst_uncorrected = train_df$nihtbx_cryst_uncorrected
   pcs_test$nihtbx_cryst_uncorrected = test_df$nihtbx_cryst_uncorrected
 
   pca_train_lin = lm(nihtbx_cryst_uncorrected ~ ., data = pcs_train)
+
   pca_test_lin = lm(nihtbx_cryst_uncorrected ~ ., data = pcs_test)
   
   train_rsq = summary(pca_train_lin)$r.squared
@@ -80,17 +91,20 @@ proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output
   return(c(train_rsq, test_rsq))
 }
 
+
+
+
 ##########################  Var estimation Bootstrap  ########################## 
 
 # Bootstrap sampling
-B = 1
+B = 50
 set.seed(1013)
 n_pcs = 100
 
 if (B !=1) {
-  boot_samples <- bootstraps(reg_data_org_all, times = B)
-  boot_samples_p <- bootstraps(reg_data_org_partial, times = B)
-  boot_samples_p_tsa <- bootstraps(reg_data_org_partial_tsa, times = B)
+  boot_samples <- rsample::bootstraps(reg_data_org_all, times = B)
+  boot_samples_p <- rsample::bootstraps(reg_data_org_partial, times = B)
+  boot_samples_p_tsa <- rsample::bootstraps(reg_data_org_partial_tsa, times = B)
   
   test_ratio = 0.2
   n = nrow(reg_data_org_all)
@@ -135,8 +149,9 @@ for (b in 1:B) {
   
   
   regular_rsq = proc_pca_output(reg_train_data, reg_test_data, train_pca, test_pca, n_pcs, "regular")
-  reg_test_r2 = c(reg_test_r2, regular_rsq[1])
-  reg_train_r2 = c(reg_train_r2, regular_rsq[2])
+
+  reg_train_r2 = c(reg_train_r2, regular_rsq[1])
+  reg_test_r2 = c(reg_test_r2, regular_rsq[2])
   
   
   if (B==1) {
@@ -167,8 +182,9 @@ for (b in 1:B) {
   print(paste0("partial data PCA done at ",Sys.time()))
   
   partial_rsq = proc_pca_output(reg_train_data_partial, reg_test_data_partial, train_pca_p, test_pca_p, n_pcs, "partial")
-  partial_test_r2 = c(partial_test_r2, partial_rsq[2])
+
   partial_train_r2 = c(partial_train_r2, partial_rsq[1])
+  partial_test_r2 = c(partial_test_r2, partial_rsq[2])
   
   
   if (B==1) {
@@ -199,8 +215,9 @@ for (b in 1:B) {
   print(paste0("partial_tsa data PCA done at ",Sys.time()))
   
   partial_tsa_rsq = proc_pca_output(reg_train_data_partial_tsa, reg_test_data_partial_tsa, train_pca_p_tsa, test_pca_p_tsa, n_pcs, "partial_tsa")
-  partial_tsa_test_r2 = c(partial_tsa_test_r2, partial_tsa_rsq[2])
+
   partial_tsa_train_r2 = c(partial_tsa_train_r2, partial_tsa_rsq[1])
+  partial_tsa_test_r2 = c(partial_tsa_test_r2, partial_tsa_rsq[2])
   
   if (B==1) {
     save(train_pca_p_tsa, file=paste0(wd, "/PCA_output/PCA_partial_tsa_train_result.Rdata"))
