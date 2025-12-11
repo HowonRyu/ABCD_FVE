@@ -19,7 +19,7 @@ from torch_geometric.data import Data
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 import scipy.io
-from nilearn import datasets, surface
+#from nilearn import datasets, surface
 from scipy.spatial import distance
 from scipy.optimize import linear_sum_assignment
 
@@ -48,6 +48,56 @@ def load_surface_mesh(SurfeView_surfaces):
     return coords, faces
 
 
+def compute_partial_correlation(df):
+    X = df.values
+    n_samples, n_vars = X.shape
+    
+    X_std = (X - X.mean(axis=0)) / X.std(axis=0)
+    
+    partial_corr = np.eye(n_vars)
+    
+    for i in range(n_vars):
+        for j in range(i + 1, n_vars):
+            other_vars = [k for k in range(n_vars) if k != i and k != j]
+            
+            if len(other_vars) == 0:
+                partial_corr[i, j] = partial_corr[j, i] = np.corrcoef(X_std[:, i], X_std[:, j])[0, 1]
+            else:
+                X_other = X_std[:, other_vars]
+                
+                XtX = X_other.T @ X_other
+                XtX += np.eye(len(other_vars)) * 1e-6
+                
+                beta_i = np.linalg.solve(XtX, X_other.T @ X_std[:, i])
+                residual_i = X_std[:, i] - X_other @ beta_i
+                
+                beta_j = np.linalg.solve(XtX, X_other.T @ X_std[:, j])
+                residual_j = X_std[:, j] - X_other @ beta_j
+                
+                partial_corr[i, j] = partial_corr[j, i] = np.corrcoef(residual_i, residual_j)[0, 1]
+    
+    return partial_corr
+
+
+def corr_to_edge_index(partial_corr, threshold=0.1):
+    n_nodes = partial_corr.shape[0]
+    
+    edges = []
+    edge_weights = []
+    
+    for i in range(n_nodes):
+        for j in range(i + 1, n_nodes):
+            corr_val = abs(partial_corr[i, j])
+            #if corr_val > threshold:
+            edges.append([i, j])
+            edges.append([j, i])
+            edge_weights.append(corr_val)
+            edge_weights.append(corr_val)
+    
+    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    edge_attr = torch.tensor(edge_weights, dtype=torch.float).unsqueeze(1)
+    
+    return edge_index, edge_attr
 
 
 def build_surface_adjacency(coords, faces):
@@ -127,10 +177,14 @@ def map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_org
 
 
 def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, norm_y=False, scaler="minmax", fs_mapping=False,
-                   partial_dat=False, partial_tsa_dat=False, icld_age_sex=False, batch_size=20):
+                   partial_dat=False, partial_tsa_dat=False, batch_size=20, use_rois=False):
 
 
-    if fs_mapping:
+    x_cols = [col for col in FVE_df_all.columns if "label_" in col]
+    
+    print("xcols length:", len(x_cols))
+    icld_age_sex = False
+    if None:
         # original mapping
         vertices_coords_orgs, faces_orgs = load_surface_mesh(SurfeView_surfaces)
         vertices_coords_orgs_left = vertices_coords_orgs[:10242]
@@ -148,27 +202,35 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, n
         A_csr = build_surface_adjacency(vertices_coords, faces)
         edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
 
+        FVE_df_old_X = FVE_df_all.dropna()
+        FVE_df = map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_orgs_left, vertices_coords_orgs_right, non_surface_area_vars)
+
+    elif use_rois:
+        #corr_train = compute_partial_correlation(FVE_df_all[x_cols])
+        import pingouin
+        corr_train = pingouin.partial_corr(FVE_df_all[x_cols])
+        vertices = None
+        edge_index, edge_attr = corr_to_edge_index(corr_train)
+        FVE_df = FVE_df_all.dropna()
+        if (not partial_dat) & (not partial_tsa_dat):
+            x_cols.append("interview_age")
+            x_cols.append("sex_2")
+            icld_age_sex = True
+ 
     else:
+        if (not partial_dat) & (not partial_tsa_dat):
+            x_cols.append("interview_age")
+            x_cols.append("sex_2")
+            icld_age_sex = True
         # original mapping
         vertices_coords, faces = load_surface_mesh(SurfeView_surfaces)
         # graph structure
         A_csr = build_surface_adjacency(vertices_coords, faces)
         edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
-
-
-    # define x columns
-    x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
-
-    if (not partial_dat and not partial_tsa_dat):
-        x_cols.append("interview_age")
-        x_cols.append("sex_2")
-
-
-    if fs_mapping:
-        FVE_df_old_X = FVE_df_all.dropna()
-        FVE_df = map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_orgs_left, vertices_coords_orgs_right, non_surface_area_vars)
-    else:
+        edge_attr = None
         FVE_df = FVE_df_all.dropna()
+        vertices = torch.FloatTensor(vertices_coords)
+
 
 
     # train, val, test split
@@ -215,11 +277,11 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, n
     
     # Graph
     train_graph = create_graph_data(X_all=X_train_scaled, y=torch.Tensor(y_train_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                            edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)
+                            edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)
     validation_graph = create_graph_data(X_all=X_val_scaled, y=torch.Tensor(y_val_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)
+                                    edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)
     test_graph = create_graph_data(X_all=X_test_scaled, y=torch.Tensor(y_test_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, vertices = torch.FloatTensor(vertices_coords), icld_age_sex=icld_age_sex)    
+                                    edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)    
 
 
     # Loaders
@@ -230,15 +292,19 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, n
     return train_loader, val_loader, test_loader
 
 
-def create_graph_data(X_all, y, edge_index, vertices, partial_dat=False, partial_tsa_dat=False, icld_age_sex=False):
+
+
+def create_graph_data(X_all, y, edge_index, vertices=None, edge_attr=None, partial_dat=False, partial_tsa_dat=False, icld_age_sex=False):
     graphs = []
     
     #pos
-    pos = vertices
+    if vertices != None:
+        pos = vertices
     
     #edge_attr
     row, col = edge_index
-    edge_attr = torch.norm(pos[row] - pos[col], p=2, dim=1, keepdim=True)
+    if edge_attr == None:
+        edge_attr = torch.norm(pos[row] - pos[col], p=2, dim=1, keepdim=True)
     
     #node features: X, interview_age, and sex
     if (partial_dat or partial_tsa_dat):
@@ -260,8 +326,8 @@ def create_graph_data(X_all, y, edge_index, vertices, partial_dat=False, partial
         data = Data(
             x=node_feat[i],
             edge_index=edge_index,
-            pos = pos,
-            #edge_attr = edge_attr,
+            #pos = pos,
+            edge_attr = edge_attr,
             y= torch.FloatTensor(y[i])
         )
         graphs.append(data)

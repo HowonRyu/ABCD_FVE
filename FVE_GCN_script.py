@@ -9,12 +9,11 @@ import sys
 from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
 from FVE_GCN_utils import *
-
 import glob
 import os
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
-import time
+
 
 from distutils.util import strtobool
 import argparse
@@ -108,7 +107,7 @@ if None:   # from BrainGNN Li et al. -- no longer use
 
 
 class GCN_new(torch.nn.Module):
-    def __init__(self, num_node_features, hidden_dim1=256, hidden_dim2=128, hidden_dim3=32, pool_ratio=0.6):
+    def __init__(self, num_node_features, hidden_dim1=521, hidden_dim2=256, hidden_dim3=128, hidden_dim4=64, pool_ratio=0.1):
         super(GCN_new, self).__init__()
         
         # GCN + pooling layers
@@ -121,32 +120,44 @@ class GCN_new(torch.nn.Module):
         self.conv3 = GCNConv(hidden_dim2, hidden_dim3, bias=True)
         self.pool3 = TopKPooling(hidden_dim3, ratio=pool_ratio)
 
+        self.conv4 = GCNConv(hidden_dim3, hidden_dim4, bias=True)
+        self.pool4 = TopKPooling(hidden_dim4, ratio=pool_ratio)
+
         # classifier after readout for regression
-        self.linear = torch.nn.Linear(hidden_dim3 * 2, 1)
+        self.linear = torch.nn.Linear(hidden_dim4 * 2, 1)
 
         # initialization
         torch.nn.init.kaiming_uniform_(self.conv1.lin.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.conv2.lin.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.conv3.lin.weight, nonlinearity='relu')
+        torch.nn.init.kaiming_uniform_(self.conv4.lin.weight, nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.linear.weight, nonlinearity='relu')
         torch.nn.init.zeros_(self.linear.bias)
 
-    def forward(self, x, edge_index, batch):
-        x = F.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
+    def forward(self, x, edge_index, batch, edge_attr=None):
+        if edge_attr is not None:
+            edge_weight = edge_attr.squeeze()
+        else:
+            edge_weight = None
+            
+        x = F.relu(self.conv1(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool1(x, edge_index, edge_weight, batch)
 
-        x = F.relu(self.conv2(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
+        x = F.relu(self.conv2(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool2(x, edge_index, edge_weight, batch)
 
-        x = F.relu(self.conv3(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
+        x = F.relu(self.conv3(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool3(x, edge_index, edge_weight, batch)
 
-        #readout
+        x = F.relu(self.conv4(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool4(x, edge_index, edge_weight, batch)
+
         x_mean = global_mean_pool(x, batch)
         x_max  = global_max_pool(x, batch)
         x = torch.cat([x_mean, x_max], dim=1)
 
         return self.linear(x)
+
 
 
 class GCN_new2(torch.nn.Module):
@@ -177,20 +188,24 @@ class GCN_new2(torch.nn.Module):
         torch.nn.init.kaiming_uniform_(self.linear.weight, nonlinearity='relu')
         torch.nn.init.zeros_(self.linear.bias)
 
-    def forward(self, x, edge_index, batch):
-        x = F.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
+    def forward(self, x, edge_index, batch, edge_attr=None):
+        if edge_attr is not None:
+            edge_weight = edge_attr.squeeze()
+        else:
+            edge_weight = None
+            
+        x = F.relu(self.conv1(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool1(x, edge_index, edge_weight, batch)
 
-        x = F.relu(self.conv2(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
+        x = F.relu(self.conv2(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool2(x, edge_index, edge_weight, batch)
 
-        x = F.relu(self.conv3(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
+        x = F.relu(self.conv3(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool3(x, edge_index, edge_weight, batch)
 
-        x = F.relu(self.conv4(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool4(x, edge_index, None, batch)
+        x = F.relu(self.conv4(x, edge_index, edge_weight=edge_weight))
+        x, edge_index, edge_weight, batch, _, _ = self.pool4(x, edge_index, edge_weight, batch)
 
-        #readout
         x_mean = global_mean_pool(x, batch)
         x_max  = global_max_pool(x, batch)
         x = torch.cat([x_mean, x_max], dim=1)
@@ -355,17 +370,12 @@ def main(args):
     elif args.partial_tsa_dat:
         dat_type = "GCN_partial_tsa"
     else:
-        if args.icld_age_sex:
-            dat_type = "GCN_cov"
-        else:
-            dat_type = "GCN"
+        dat_type = "GCN_regular"
 
 
     job_full_nickname = f"{args.job_nickname}_{dat_type}_{args.model_type}_lr{args.lr}"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    if (args.partial_dat and args.icld_age_sex) or (args.partial_tsa_dat and args.icld_age_sex):
-        raise ValueError("Incompatible configuration: cannot use partial data with covariates.")
 
     with open(f"GCN_models/{job_full_nickname}.txt", "w") as f:
         print(f"Writing model output... using device: {device}", file=f, flush=True)
@@ -381,35 +391,47 @@ def main(args):
         # data load
         print(f"Loading data at {time.ctime(time.time())}", file=f, flush=True)
 
+        num_node_features = 1
         if args.partial_dat:
-            FVE_df_org = pd.read_csv("data/FVE_dat_partial.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
-            dat_type = "GCN_partial"
-        elif args.partial_tsa_dat:
-            FVE_df_org = pd.read_csv("data/FVE_dat_partial_tsa.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
-            dat_type = "GCN_partial_tsa"
-        else:
-            FVE_df_org = pd.read_csv("data/FVE_dat.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["interview_age", "sex_2", "nihtbx_cryst_uncorrected"]
-            if args.icld_age_sex:
-                dat_type = "GCN_cov"
+            if args.use_rois:
+                bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_test.csv")
+                bm_train = pd.read_csv("data_out/brain_mapping_mean_partial_train.csv")
             else:
-                dat_type = "GCN"
+                FVE_df_org = pd.read_csv("data/FVE_dat_partial.csv")
+            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
+        elif args.partial_tsa_dat:
+            if args.use_rois:
+                bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_test.csv")
+                bm_train = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_train.csv")
+            else:
+                FVE_df_org = pd.read_csv("data/FVE_dat_partial_tsa.csv")
+            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
+        else:
+            num_node_features = 3
+            if args.use_rois:
+                bm_test = pd.read_csv("data_out/brain_mapping_mean_regular_test.csv")
+                bm_train = pd.read_csv("data_out/brain_mapping_mean_regular_train.csv")
+            else:
+                FVE_df_org = pd.read_csv("data/FVE_dat.csv")
+            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+            non_surface_area_vars = ["interview_age", "sex_2", "nihtbx_cryst_uncorrected"] 
+
+        if args.use_rois:
+            FVE_df_org = pd.concat([bm_train, bm_test])
+
         
         print(f"input sanity check: partial={args.partial_dat}, partial_tsa={args.partial_tsa_dat}, x_cols={FVE_df_org.columns[0:1]} to {FVE_df_org.columns[20483:len(FVE_df_org.columns)]}")
 
         train_loader, val_loader, test_loader = input_to_graph(
+            use_rois = args.use_rois,
             SurfeView_surfaces=SurfeView_surfaces,
             FVE_df_all=FVE_df_org,
             partial_dat=args.partial_dat,
             partial_tsa_dat=args.partial_tsa_dat,
             scaler=args.scaler_name,
             norm_y=args.norm_y,
-            icld_age_sex=args.icld_age_sex,
             batch_size=args.batch_size,
             fs_mapping = args.fs_mapping,
             non_surface_area_vars = non_surface_area_vars
@@ -419,11 +441,6 @@ def main(args):
 
         print(f"Data loaded at {time.ctime(time.time())}", file=f, flush=True)
 
-        # select model
-        if args.icld_age_sex:
-            num_node_features = 3
-        else:
-            num_node_features = 1
 
         print(f"num_node_features={num_node_features}")
         if args.model_type == "base":
@@ -479,6 +496,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--use_rois", action="store_true", default=False)
     parser.add_argument("--lr", type=float, default=0.0001)
     parser.add_argument("--weight_decay", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
@@ -490,7 +508,6 @@ if __name__ == "__main__":
     parser.add_argument("--norm_y", action="store_true")
     parser.add_argument("--partial_dat", action="store_true")
     parser.add_argument("--partial_tsa_dat", action="store_true")
-    parser.add_argument("--icld_age_sex", action="store_true")
     parser.add_argument("--scaler_name", type=str, default="standard",
                         choices=["standard", "minmax"],)
     parser.add_argument("--fs_mapping", action="store_true", default=False)
