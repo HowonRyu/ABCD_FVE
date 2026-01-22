@@ -3,10 +3,10 @@ import pandas as pd
 import os
 import sys
 import time
-
-
+from pathlib import Path
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+
 
 
 
@@ -84,6 +84,7 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
         f.flush()
 
         mse_list, r2_list = [], []
+        all_importances = []
 
         print(f"Starting {m} bootstrap experiments, seed={seed}, n_estimators={n_estimators}", file=f, flush=True)
         print(f"Starting {m} bootstrap experiments, seed={seed}, n_estimators={n_estimators}")
@@ -108,8 +109,14 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
                 X_boot, y_boot = X.iloc[boot_indices], y.iloc[boot_indices]
                 X_oob, y_oob = X.iloc[oob_indices], y.iloc[oob_indices]
 
+            # Train
             rf_regressor = RandomForestRegressor(n_estimators=n_estimators, random_state=None if seed is None else seed + i)
             rf_regressor.fit(X_boot, y_boot)
+
+            # Extract feature importances
+            importances = rf_regressor.feature_importances_
+            all_importances.append(importances)
+
 
             y_pred = rf_regressor.predict(X_oob)
             mse = mean_squared_error(y_oob, y_pred)
@@ -138,8 +145,20 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
         print(f"Mean MSE: {np.mean(mse_list):.4f} +/- {np.std(mse_list):.4f}")
         print(f"Mean R2 : {np.mean(r2_list):.4f} +/- {np.std(r2_list):.4f}")
         
-        #pd.Series(mse_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_MSE.csv")
+        # save R2
         pd.Series(r2_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_R2.csv")
+
+        # save importance
+        importance_df = pd.DataFrame(all_importances, columns=x_cols)
+        importance_df.to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_importances.csv", index=False)
+   
+        # Save feature names
+        pd.DataFrame({'feature': x_cols}).to_csv(
+            f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_names.csv", 
+            index=False
+        )
+
+
         print(f"Finished all runs ({time.ctime(time.time())})", file=f)
         print(f"Finished all runs ({time.ctime(time.time())})")
         f.flush()
@@ -155,10 +174,12 @@ if __name__ == "__main__":
     partial = (sys.argv[2] == "True")
     partial_tsa = (sys.argv[3] == "True")
     n_estimators = int(sys.argv[4])
-    seed = int(sys.argv[5]) if sys.argv[4] != "None" else None
+    seed = int(sys.argv[5]) if sys.argv[5] != "None" else None
     m = int(sys.argv[6])
 
     main(exp_name=exp_name, partial=partial, seed=seed, n_estimators=n_estimators, m=m, partial_tsa=partial_tsa)
+
+
 
 
 

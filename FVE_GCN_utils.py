@@ -176,14 +176,13 @@ def map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_org
     return FVE_df
 
 
-def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, norm_y=False, scaler="minmax", fs_mapping=False,
-                   partial_dat=False, partial_tsa_dat=False, batch_size=20, use_rois=False):
+def input_to_graph(SurfeView_surfaces, X_df_all, y_all, non_surface_area_vars=None, fs_mapping=False,
+                   partial_dat=False, partial_tsa_dat=False,  use_rois=False, bootstrap=False):
 
-
-    x_cols = [col for col in FVE_df_all.columns if "label_" in col]
     
-    print("xcols length:", len(x_cols))
+    print("xcols length:", len(X_df_all.columns))
     icld_age_sex = False
+    
     if None:
         # original mapping
         vertices_coords_orgs, faces_orgs = load_surface_mesh(SurfeView_surfaces)
@@ -206,90 +205,34 @@ def input_to_graph(SurfeView_surfaces, FVE_df_all, non_surface_area_vars=None, n
         FVE_df = map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_orgs_left, vertices_coords_orgs_right, non_surface_area_vars)
 
     elif use_rois:
-        #corr_train = compute_partial_correlation(FVE_df_all[x_cols])
-        import pingouin
-        corr_train = pingouin.partial_corr(FVE_df_all[x_cols])
+        vertices_cols = [col for col in X_df_all.columns if "label_" in col]
+        corr = compute_partial_correlation(X_df_all[vertices_cols])
         vertices = None
-        edge_index, edge_attr = corr_to_edge_index(corr_train)
-        FVE_df = FVE_df_all.dropna()
+        edge_index, edge_attr = corr_to_edge_index(corr)
+        #X_df = X_df_all.dropna()
         if (not partial_dat) & (not partial_tsa_dat):
-            x_cols.append("interview_age")
-            x_cols.append("sex_2")
             icld_age_sex = True
  
     else:
-        if (not partial_dat) & (not partial_tsa_dat):
-            x_cols.append("interview_age")
-            x_cols.append("sex_2")
-            icld_age_sex = True
         # original mapping
         vertices_coords, faces = load_surface_mesh(SurfeView_surfaces)
         # graph structure
         A_csr = build_surface_adjacency(vertices_coords, faces)
         edge_index = torch.tensor(np.array(A_csr.nonzero()), dtype=torch.long)
         edge_attr = None
-        FVE_df = FVE_df_all.dropna()
+        #X_df = X_df_all.dropna()
         vertices = torch.FloatTensor(vertices_coords)
+        if (not partial_dat) & (not partial_tsa_dat):
+            icld_age_sex = True
+ 
 
-
-
-    # train, val, test split
-    train_valid, test = train_test_split(FVE_df, test_size=0.2, random_state=42)
-    train, val = train_test_split(train_valid, test_size=0.2, random_state=42)
-    
-    
-
-    # Normalization
-    X_train = train[x_cols]
-    X_val   = val[x_cols]
-    X_test  = test[x_cols]
-
-    y_train = train["nihtbx_cryst_uncorrected"]
-    y_val   = val["nihtbx_cryst_uncorrected"]
-    y_test  = test["nihtbx_cryst_uncorrected"]
-
-
-    # standardization
-    if scaler=="minmax":
-        scaler_X = MinMaxScaler().fit(X_train)
-    else:
-        scaler_X = StandardScaler().fit(X_train)
-
-
-    X_train_scaled = pd.DataFrame(scaler_X.transform(X_train), columns=x_cols, index=X_train.index)
-    X_val_scaled   = pd.DataFrame(scaler_X.transform(X_val),   columns=x_cols, index=X_val.index)
-    X_test_scaled  = pd.DataFrame(scaler_X.transform(X_test),  columns=x_cols, index=X_test.index)
-
-
-    # standardize y
-    if norm_y:
-        if scaler=="minmax":
-            scaler_y = MinMaxScaler().fit(y_train.values.reshape(-1,1))
-        else:
-            scaler_y = StandardScaler().fit(y_train.values.reshape(-1,1))
-        y_train_scaled = scaler_y.transform(y_train.values.reshape(-1,1)).flatten()
-        y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1,1)).flatten()
-        y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1,1)).flatten()
-    else:
-        y_train_scaled, y_val_scaled, y_test_scaled = y_train, y_val, y_test
-
-    print(f"sanity check before create_graph_data: y and x shape: {y_train_scaled.shape}, {X_train_scaled.shape}; x_cols: {X_train_scaled.columns[0:1]} to {X_train_scaled.columns[20483:]}")
     
     # Graph
-    train_graph = create_graph_data(X_all=X_train_scaled, y=torch.Tensor(y_train_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
+    graph = create_graph_data(X_all=X_df_all, y=torch.Tensor(y_all), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
                             edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)
-    validation_graph = create_graph_data(X_all=X_val_scaled, y=torch.Tensor(y_val_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)
-    test_graph = create_graph_data(X_all=X_test_scaled, y=torch.Tensor(y_test_scaled), partial_dat=partial_dat, partial_tsa_dat= partial_tsa_dat,
-                                    edge_index = edge_index, edge_attr=edge_attr, vertices = vertices, icld_age_sex=icld_age_sex)    
 
+    return graph
 
-    # Loaders
-    train_loader = DataLoader(train_graph, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader   = DataLoader(validation_graph, batch_size=batch_size, shuffle=False, drop_last=False)
-    test_loader  = DataLoader(test_graph, batch_size=batch_size, shuffle=False, drop_last=False)
-
-    return train_loader, val_loader, test_loader
 
 
 

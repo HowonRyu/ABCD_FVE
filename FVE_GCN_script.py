@@ -107,7 +107,7 @@ if None:   # from BrainGNN Li et al. -- no longer use
 
 
 class GCN_new(torch.nn.Module):
-    def __init__(self, num_node_features, hidden_dim1=521, hidden_dim2=256, hidden_dim3=128, hidden_dim4=64, pool_ratio=0.1):
+    def __init__(self, num_node_features, hidden_dim1=521, hidden_dim2=256, hidden_dim3=128, hidden_dim4=64, pool_ratio=0.2):
         super(GCN_new, self).__init__()
         
         # GCN + pooling layers
@@ -362,6 +362,126 @@ def train_model(model, train_loader, test_loader, epochs=100, patience=999, lr=0
 
     return model
 
+def load_data(args):
+    # ignore non args.use_rois option for now
+    num_node_features = 1
+    if args.partial_dat:
+        if args.use_rois:
+            bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_test.csv")
+            bm_train_all = pd.read_csv("data_out/brain_mapping_mean_partial_train.csv")
+            bm_train, bm_val = train_test_split(bm_train_all, test_size=0.2, random_state=42)
+            x_cols = [col for col in bm_train.columns if "label_" in col]
+
+        else:
+            FVE_df_org = pd.read_csv("data/FVE_dat_partial.csv")
+            x_cols = [col for col in FVE_df_org.columns if "l_" or "r_" in col]
+
+        SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+        non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
+
+
+    elif args.partial_tsa_dat:
+        if args.use_rois:
+            bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_test.csv")
+            bm_train_all = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_train.csv")
+            bm_train, bm_val = train_test_split(bm_train_all, test_size=0.2, random_state=42)
+            x_cols = [col for col in bm_train.columns if "label_" in col]
+
+        else:
+            FVE_df_org = pd.read_csv("data/FVE_dat_partial_tsa.csv")
+            x_cols = [col for col in FVE_df_org.columns if "r_" or "l_" in col]
+
+        SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+        non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
+
+    else:
+        num_node_features = 3
+        if args.use_rois:
+            bm_test = pd.read_csv("data_out/brain_mapping_mean_regular_test.csv")
+            bm_train_all = pd.read_csv("data_out/brain_mapping_mean_regular_train.csv")
+            bm_train, bm_val = train_test_split(bm_train_all, test_size=0.2, random_state=42)
+            x_cols = [col for col in bm_train.columns if "label_" in col]
+            x_cols.append("interview_age")
+            x_cols.append("sex_2")
+
+        else:
+            FVE_df_org = pd.read_csv("data/FVE_dat.csv")
+            x_cols = [col for col in FVE_df_org.columns if "l_" or "r_" in col]
+            x_cols.append("interview_age")
+            x_cols.append("sex_2")      
+
+        SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
+        non_surface_area_vars = ["interview_age", "sex_2", "nihtbx_cryst_uncorrected"] 
+
+
+    return bm_train_all, bm_test, SurfeView_surfaces, non_surface_area_vars, num_node_features, x_cols
+
+
+def split_data(args, bm_train_all, bm_test, x_cols, i):
+    if args.m == 1:
+        bm_train, bm_val = train_test_split(bm_train_all, test_size=0.2, random_state=42)
+        X_train = bm_train[x_cols]
+        y_train = bm_train["nihtbx_cryst_uncorrected"]
+        X_val = bm_val[x_cols]
+        y_val = bm_val["nihtbx_cryst_uncorrected"]
+        X_test = bm_test[x_cols]
+        y_test = bm_test["nihtbx_cryst_uncorrected"]
+
+    else:
+        if args.use_rois:
+            FVE_df_org = pd.concat([bm_train_all, bm_test])
+            n = len(FVE_df_org)
+            iter_rng = np.random.RandomState(args.seed + i) if args.seed is not None else np.random
+            boot_indices = iter_rng.choice(n, size=n, replace=True)
+            oob_indices = np.setdiff1d(np.arange(n), boot_indices)
+
+            FVE_df_boot = FVE_df_org.iloc[boot_indices]
+            FVE_df_train, FVE_df_val = train_test_split(FVE_df_boot, test_size=0.2, random_state=42)
+            FVE_df_oob = FVE_df_org.iloc[oob_indices]
+
+        X_train = FVE_df_train[x_cols]
+        y_train = FVE_df_train["nihtbx_cryst_uncorrected"]
+        X_val = FVE_df_val[x_cols]
+        y_val = FVE_df_val["nihtbx_cryst_uncorrected"]
+        X_test = FVE_df_oob[x_cols]
+        y_test = FVE_df_oob["nihtbx_cryst_uncorrected"]
+
+    print(f"input sanity check: partial={args.partial_dat}, partial_tsa={args.partial_tsa_dat}, x_cols={X_train.columns[0:1]} to {X_train.columns[(len(X_train.columns)-3):len(X_train.columns)]}")
+
+    # standardization
+    if args.x_scaler_name=="minmax":
+        scaler_X = MinMaxScaler().fit(X_train)
+        X_train_scaled = pd.DataFrame(scaler_X.transform(X_train), columns=x_cols, index=X_train.index)
+        X_val_scaled   = pd.DataFrame(scaler_X.transform(X_val),   columns=x_cols, index=X_val.index)
+        X_test_scaled  = pd.DataFrame(scaler_X.transform(X_test),  columns=x_cols, index=X_test.index)
+    elif args.x_scaler_name=="standard":
+        scaler_X = StandardScaler().fit(X_train)
+        X_train_scaled = pd.DataFrame(scaler_X.transform(X_train), columns=x_cols, index=X_train.index)
+        X_val_scaled   = pd.DataFrame(scaler_X.transform(X_val),   columns=x_cols, index=X_val.index)
+        X_test_scaled  = pd.DataFrame(scaler_X.transform(X_test),  columns=x_cols, index=X_test.index)
+    else:
+        X_train_scaled = pd.DataFrame(X_train)
+        X_test_scaled  = pd.DataFrame(X_test)
+        X_val_scaled  = pd.DataFrame(X_val)
+
+    # standardize y
+    if args.y_scaler_name=="minmax":
+        scaler_y = MinMaxScaler().fit(y_train.values.reshape(-1,1))
+        y_train_scaled = scaler_y.transform(y_train.values.reshape(-1,1)).flatten()
+        y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1,1)).flatten()
+        y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1,1)).flatten()
+    elif args.y_scaler_name=="standard":
+        scaler_y = StandardScaler().fit(y_train.values.reshape(-1,1))
+        y_train_scaled = scaler_y.transform(y_train.values.reshape(-1,1)).flatten()
+        y_val_scaled   = scaler_y.transform(y_val.values.reshape(-1,1)).flatten()
+        y_test_scaled  = scaler_y.transform(y_test.values.reshape(-1,1)).flatten()
+    else:
+        y_train_scaled, y_test_scaled, y_val_scaled = y_train, y_test, y_val
+    
+    y = [y_train_scaled, y_val_scaled, y_test_scaled]
+    x = [X_train_scaled, X_val_scaled, X_test_scaled]
+
+    return x, y
 
 
 def main(args):
@@ -378,118 +498,116 @@ def main(args):
     
 
     with open(f"GCN_models/{job_full_nickname}.txt", "w") as f:
+        print(args, file=f, flush=True)
         print(f"Writing model output... using device: {device}", file=f, flush=True)
         print("{}".format(args).replace(', ', ',\n'), file=f, flush=True)
-        #print(
-        #    f"epochs={args.epochs}, lr={args.lr}, wd={args.weight_decay}, patience={args.patience}, batch_size={args.batch_size}, "
-        #    f"norm_y={args.norm_y}, icld_age_sex={args.icld_age_sex}, partial={args.partial_dat}, partial_tsa={args.partial_tsa_dat}, "
-        #    f"scaler={args.scaler_name}, device={device}",
-        #    file=f,
-        #    flush=True,
-        #)
 
         # data load
         print(f"Loading data at {time.ctime(time.time())}", file=f, flush=True)
+        bm_train_all, bm_test, SurfeView_surfaces, non_surface_area_vars, num_node_features, x_cols = load_data(args)
 
-        num_node_features = 1
-        if args.partial_dat:
-            if args.use_rois:
-                bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_test.csv")
-                bm_train = pd.read_csv("data_out/brain_mapping_mean_partial_train.csv")
-            else:
-                FVE_df_org = pd.read_csv("data/FVE_dat_partial.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
-        elif args.partial_tsa_dat:
-            if args.use_rois:
-                bm_test = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_test.csv")
-                bm_train = pd.read_csv("data_out/brain_mapping_mean_partial_tsa_train.csv")
-            else:
-                FVE_df_org = pd.read_csv("data/FVE_dat_partial_tsa.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["nihtbx_cryst_uncorrected"]
-        else:
-            num_node_features = 3
-            if args.use_rois:
-                bm_test = pd.read_csv("data_out/brain_mapping_mean_regular_test.csv")
-                bm_train = pd.read_csv("data_out/brain_mapping_mean_regular_train.csv")
-            else:
-                FVE_df_org = pd.read_csv("data/FVE_dat.csv")
-            SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
-            non_surface_area_vars = ["interview_age", "sex_2", "nihtbx_cryst_uncorrected"] 
+        R2_list = []
+        MSE_list = []
 
-        if args.use_rois:
-            FVE_df_org = pd.concat([bm_train, bm_test])
+        for i in range(args.m):
+            print(f"-----------------------------STARTING bootstrap {i}th iteration -----------------------------", file=f, flush=True)
+            x, y = split_data(args, bm_train_all, bm_test, x_cols, i)
+            y_train_scaled, y_val_scaled, y_test_scaled = y
+            X_train_scaled, X_val_scaled, X_test_scaled = x
 
-        
-        print(f"input sanity check: partial={args.partial_dat}, partial_tsa={args.partial_tsa_dat}, x_cols={FVE_df_org.columns[0:1]} to {FVE_df_org.columns[20483:len(FVE_df_org.columns)]}")
+            train_graph = input_to_graph(
+                use_rois = args.use_rois,
+                SurfeView_surfaces=SurfeView_surfaces,
+                X_df_all=X_train_scaled,
+                y_all = y_train_scaled,
+                partial_dat=args.partial_dat,
+                partial_tsa_dat=args.partial_tsa_dat,
+                fs_mapping = args.fs_mapping,
+                non_surface_area_vars = non_surface_area_vars
+            )
+            test_graph = input_to_graph(
+                use_rois = args.use_rois,
+                SurfeView_surfaces=SurfeView_surfaces,
+                X_df_all=X_test_scaled,
+                y_all = y_test_scaled,
+                partial_dat=args.partial_dat,
+                partial_tsa_dat=args.partial_tsa_dat,
+                fs_mapping = args.fs_mapping,
+                non_surface_area_vars = non_surface_area_vars
+            )
+            val_graph = input_to_graph(
+                use_rois = args.use_rois,
+                SurfeView_surfaces=SurfeView_surfaces,
+                X_df_all=X_val_scaled,
+                y_all = y_val_scaled,
+                partial_dat=args.partial_dat,
+                partial_tsa_dat=args.partial_tsa_dat,
+                fs_mapping = args.fs_mapping,
+                non_surface_area_vars = non_surface_area_vars
+            )
+            # Loaders
+            train_loader = DataLoader(train_graph, batch_size=args.batch_size, shuffle=True, drop_last=True)
+            val_loader   = DataLoader(val_graph, batch_size=args.batch_size, shuffle=False, drop_last=False)
+            test_loader  = DataLoader(test_graph, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
-        train_loader, val_loader, test_loader = input_to_graph(
-            use_rois = args.use_rois,
-            SurfeView_surfaces=SurfeView_surfaces,
-            FVE_df_all=FVE_df_org,
-            partial_dat=args.partial_dat,
-            partial_tsa_dat=args.partial_tsa_dat,
-            scaler=args.scaler_name,
-            norm_y=args.norm_y,
-            batch_size=args.batch_size,
-            fs_mapping = args.fs_mapping,
-            non_surface_area_vars = non_surface_area_vars
-        )
-
-
-
-        print(f"Data loaded at {time.ctime(time.time())}", file=f, flush=True)
+            print(f"Data loaded at {time.ctime(time.time())}", file=f, flush=True)
 
 
-        print(f"num_node_features={num_node_features}")
-        if args.model_type == "base":
-            model = GCN_new(num_node_features=num_node_features).to(device)
-        elif args.model_type == "base2":
-            model = GCN_new2(num_node_features=num_node_features).to(device)
-        elif args.model_type == "deep":
-            model = GCN_deeper(num_node_features=num_node_features).to(device)
-        elif args.model_type == "BrainGNN":
-            model = Network(indim=num_node_features, ratio=0.8).to(device)
+            print(f"num_node_features={num_node_features}")
+            if args.model_type == "base":
+                model = GCN_new(num_node_features=num_node_features, pool_ratio=args.pool_ratio).to(device)
+            elif args.model_type == "base2":
+                model = GCN_new2(num_node_features=num_node_features).to(device)
+            elif args.model_type == "deep":
+                model = GCN_deeper(num_node_features=num_node_features).to(device)
+            elif args.model_type == "BrainGNN":
+                model = Network(indim=num_node_features, ratio=0.8).to(device)
 
-        # training
-        print(f"Start training at {time.ctime(time.time())}", file=f, flush=True)
-        boolean_map = {False: "F", True: "T"}
+            # training
+            print(f"Start training at {time.ctime(time.time())}", file=f, flush=True)
 
 
-        trained_model = train_model(
-            model=model,
-            train_loader=train_loader,
-            test_loader=val_loader,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            epochs=args.epochs,
-            patience=args.patience,
-            log=f,
-            device=device,
-        )
+            trained_model = train_model(
+                model=model,
+                train_loader=train_loader,
+                test_loader=val_loader,
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+                epochs=args.epochs,
+                patience=args.patience,
+                log=f,
+                device=device,
+            )
 
-        # model save
-        torch.save(
-            trained_model,
-            f"GCN_models/{job_full_nickname}.pt",
-        )
-        print(f"Start eval at {time.ctime(time.time())}", file=f, flush=True)
+            # model save
+            if args.m == 1:
+                torch.save(trained_model, f"GCN_models/{job_full_nickname}.pt")
 
-        # eval
-        trained_model.eval()
-        y_pred, y_true = [], []
-        with torch.no_grad():
-            for batch in val_loader:
-                batch = batch.to(device)
-                out = trained_model(batch.x, batch.edge_index, batch.batch)
-                y_pred.extend(out.cpu().numpy().flatten())
-                y_true.extend(batch.y.cpu().numpy().flatten())
 
-        y_pred, y_true = np.array(y_pred), np.array(y_true)
-        r2 = r2_score(y_true, y_pred)
-        mse = mean_squared_error(y_true, y_pred)
-        print(f"R2 Score: {r2:.4f}, MSE: {mse:.4f}", file=f, flush=True)
+            print(f"Start eval at {time.ctime(time.time())}", file=f, flush=True)
+
+            # eval
+            trained_model.eval()
+            y_pred, y_true = [], []
+            with torch.no_grad():
+                for batch in test_loader:
+                    batch = batch.to(device)
+                    out = trained_model(batch.x, batch.edge_index, batch.batch)
+                    y_pred.extend(out.cpu().numpy().flatten())
+                    y_true.extend(batch.y.cpu().numpy().flatten())
+
+            y_pred, y_true = np.array(y_pred), np.array(y_true)
+            r2 = r2_score(y_true, y_pred)
+            mse = mean_squared_error(y_true, y_pred)
+            R2_list.append(r2)
+            MSE_list.append(mse)
+            
+            print(f"-----------------------------AT M={i}: R2 Score: {r2:.4f}, MSE: {mse:.4f}-----------------------------", file=f, flush=True)
+            print(f"-----------------------------AT M={i}, AVG R2 Score: {np.mean(R2_list):.4f} +/- {np.std(R2_list):.4f}-----------------------------", file=f, flush=True)
+
+    
+    if args.m > 1:
+        pd.Series(R2_list).to_csv(f"/niddk-data-central/mae_hr/FVE/GCN_models/GCN_output/{job_full_nickname}_R2.csv")
 
 
 
@@ -498,6 +616,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_rois", action="store_true", default=False)
     parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--pool_ratio", type=float, default=0.05)
+    parser.add_argument("--seed", type=int, default=1004)
     parser.add_argument("--weight_decay", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--job_nickname", type=str, required=True)
@@ -505,11 +625,14 @@ if __name__ == "__main__":
                         choices=["base", "deep", "BrainGNN", "new", "base2"])
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=100)
-    parser.add_argument("--norm_y", action="store_true")
+    parser.add_argument("--m", type=int, default=1)
     parser.add_argument("--partial_dat", action="store_true")
     parser.add_argument("--partial_tsa_dat", action="store_true")
-    parser.add_argument("--scaler_name", type=str, default="standard",
-                        choices=["standard", "minmax"],)
+    parser.add_argument("--x_scaler_name", type=str, default="standard",
+                        choices=["standard", "minmax", "none"],)
+    parser.add_argument("--y_scaler_name", type=str, default="standard",
+                        choices=["standard", "minmax", "none"],)
     parser.add_argument("--fs_mapping", action="store_true", default=False)
+    parser.add_argument("--bootstrap", action="store_true", default=False)
     args = parser.parse_args()
     main(args)
