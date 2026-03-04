@@ -374,6 +374,8 @@ def load_data(args):
 
         else:
             FVE_df_org = pd.read_csv("data/FVE_dat_partial.csv")
+            bm_train_all = FVE_df_org   # quick fix for args.use_rois == False
+            bm_test = FVE_df_org
             x_cols = [col for col in FVE_df_org.columns if "l_" or "r_" in col]
 
         SurfeView_surfaces = scipy.io.loadmat("data/SurfeView_surfaces.mat")
@@ -406,6 +408,8 @@ def load_data(args):
 
         else:
             FVE_df_org = pd.read_csv("data/FVE_dat.csv")
+            bm_train_all = FVE_df_org # quick fix for args.use_rois == False
+            bm_test = FVE_df_org
             x_cols = [col for col in FVE_df_org.columns if "l_" or "r_" in col]
             x_cols.append("interview_age")
             x_cols.append("sex_2")      
@@ -430,14 +434,17 @@ def split_data(args, bm_train_all, bm_test, x_cols, i):
     else:
         if args.use_rois:
             FVE_df_org = pd.concat([bm_train_all, bm_test])
-            n = len(FVE_df_org)
-            iter_rng = np.random.RandomState(args.seed + i) if args.seed is not None else np.random
-            boot_indices = iter_rng.choice(n, size=n, replace=True)
-            oob_indices = np.setdiff1d(np.arange(n), boot_indices)
+        else:
+            FVE_df_org = bm_train_all
 
-            FVE_df_boot = FVE_df_org.iloc[boot_indices]
-            FVE_df_train, FVE_df_val = train_test_split(FVE_df_boot, test_size=0.2, random_state=42)
-            FVE_df_oob = FVE_df_org.iloc[oob_indices]
+        n = len(FVE_df_org)
+        iter_rng = np.random.RandomState(args.seed + i) if args.seed is not None else np.random
+        boot_indices = iter_rng.choice(n, size=n, replace=True)
+        oob_indices = np.setdiff1d(np.arange(n), boot_indices)
+
+        FVE_df_boot = FVE_df_org.iloc[boot_indices]
+        FVE_df_train, FVE_df_val = train_test_split(FVE_df_boot, test_size=0.2, random_state=42)
+        FVE_df_oob = FVE_df_org.iloc[oob_indices]
 
         X_train = FVE_df_train[x_cols]
         y_train = FVE_df_train["nihtbx_cryst_uncorrected"]

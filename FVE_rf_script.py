@@ -137,6 +137,8 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
             
             #pd.Series(mse_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_MSE.csv")
             pd.Series(r2_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_R2.csv")
+            importance_df = pd.DataFrame(all_importances, columns=x_cols)
+            importance_df.to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_importances.csv", index=False)
 
         print("\nFinal Bootstrap Results", file=f)
         print(f"Mean MSE: {np.mean(mse_list):.4f} +/- {np.std(mse_list):.4f}", file=f)

@@ -1,6 +1,8 @@
-install.packages(c("dplyr", "readr"))
+#install.packages(c("dplyr", "readr"))
+#install.packages("vctrs")
 library(dplyr)
 library(readr)
+library(rsample)
 #library(tidyverse)
 #.libPaths("/data/howon/FVE/Rlibs")
 
@@ -52,7 +54,7 @@ mapping_reg <- function(train_data, test_data) {
   test_r2 = my_R2(true=test_true_y, pred=test_pred_y)
   train_r2 = sum_train_model$r.squared
   
-  return(c(train_r2, test_r2))
+  return(c(train_r2, test_r2, train_model))
 }
 
 
@@ -62,13 +64,13 @@ mapping_reg <- function(train_data, test_data) {
 ##########################  Var estimation Bootstrap  ########################## 
 
 # Bootstrap sampling
-B = 5
+B = 50
 set.seed(1013)
 
 
 if (B !=1) {
-  boot_samples <- bootstraps(reg_data_org_all, times = B)
-  boot_samples_p <- bootstraps(reg_data_org_partial, times = B)
+  boot_samples <-bootstraps(reg_data_org_all, times = B)
+  boot_samples_p <-bootstraps(reg_data_org_partial, times = B)
   boot_samples_p_tsa <- bootstraps(reg_data_org_partial_tsa, times = B)
   
   test_ratio = 0.2
@@ -107,15 +109,15 @@ for (b in 1:B) {
   
 
   r2 = mapping_reg(reg_train_data, reg_test_data) 
-  reg_train_r2 = c(reg_train_r2, r2[1])
-  reg_test_r2 = c(reg_test_r2, r2[2])  
-  
+  reg_train_r2 = c(reg_train_r2, r2[[1]])
+  reg_test_r2 = c(reg_test_r2, r2[[2]])
+  train_mapping = r2[[3]]
+
   if (B==1) {
     #save(train_pca, file=paste0(wd, "/PCA_output/PCA_train_result.Rdata"))
     #save(test_pca, file=paste0(wd, "/PCA_output/PCA_test_result.Rdata"))
   } else {
-    #all_models[[paste0("PCA_train", b)]] = train_pca
-    #all_models[[paste0("PCA_test", b)]] = test_pca
+    all_models[[paste0("mapping_train", b)]] = train_mapping
   }
   
   
@@ -133,16 +135,16 @@ for (b in 1:B) {
   
   
   r2_partial = mapping_reg(reg_train_data_partial, reg_test_data_partial) 
-  partial_train_r2 = c(partial_train_r2, r2_partial[1])
-  partial_test_r2 = c(partial_test_r2, r2_partial[2])  
-  
+  partial_train_r2 = c(partial_train_r2, r2_partial[[1]])
+  partial_test_r2 = c(partial_test_r2, r2_partial[[2]])  
+  train_mapping_p = r2_partial[[3]]
   
   if (B==1) {
     #save(train_pca_p, file=paste0(wd, "/PCA_output/PCA_partial_train_result.Rdata"))
     #save(test_pca_p, file=paste0(wd, "/PCA_output/PCA_partial_test_result.Rdata"))
   } else {
-    #all_models[[paste0("PCA_p_train", b)]] = train_pca_p
-    #all_models[[paste0("PCA_p_test", b)]] = test_pca_p
+    all_models[[paste0("mapping_p_train", b)]] = train_mapping_p
+
   }
   
   # partial_tsa
@@ -160,16 +162,15 @@ for (b in 1:B) {
   
   
   r2_partial_tsa = mapping_reg(reg_train_data_partial_tsa, reg_test_data_partial_tsa) 
-  partial_tsa_train_r2 = c(partial_tsa_train_r2, r2_partial_tsa[1])
-  partial_tsa_test_r2 = c(partial_tsa_test_r2, r2_partial_tsa[2])  
-  
+  partial_tsa_train_r2 = c(partial_tsa_train_r2, r2_partial_tsa[[1]])
+  partial_tsa_test_r2 = c(partial_tsa_test_r2, r2_partial_tsa[[2]])  
+  train_mapping_p_tsa = r2_partial_tsa[[3]]
   
   if (B==1) {
     #save(train_pca_p_tsa, file=paste0(wd, "/PCA_output/PCA_partial_tsa_train_result.Rdata"))
     #save(test_pca_p_tsa, file=paste0(wd, "/PCA_output/PCA_partial_tsa_test_result.Rdata"))
   } else {
-    #all_models[[paste0("PCA_p_tsa_train", b)]] = train_pca_p_tsa
-    #all_models[[paste0("PCA_p_tsa_test", b)]] = test_pca_p_tsa
+    all_models[[paste0("mapping_p_tsa_train", b)]] = train_mapping_p_tsa
   }
   
 }
@@ -188,7 +189,7 @@ save(result_tbl_boot, file=paste0(wd, "/PCA_output/mapping_result_tbl_boot_", B,
 
 
 if (B!=1) {
-  #save(all_models, file=paste0(wd, "/PCA_output/PCA_all_models_", B, ".Rdata"))
+  save(all_models, file=paste0(wd, "/PCA_output/mapping_result_all_models_", B, ".Rdata"))
   
 } 
 

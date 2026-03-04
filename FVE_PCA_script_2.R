@@ -127,7 +127,7 @@ proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output
 B = 50
 seed = 1013
 set.seed(seed)
-n_pcs = 1024   #counter so far: n_pcs=2, 102
+n_pcs = 205   #counter so far: n_pcs=2, 102
 nickname = paste0(n_pcs, "_", B, "_", seed)
 
 

@@ -156,6 +156,14 @@ def map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_org
     left_cols = sorted(left_cols, key=lambda x: int(x.split('_')[0]))
     right_cols = sorted(right_cols, key=lambda x: int(x.split('_')[0]))
 
+    # save the mapping
+    mapping_df = pd.DataFrame({
+        'orig_idx': np.concatenate([np.arange(10242), np.arange(10242)]),
+        'fs_idx': np.concatenate([col_ind_left, col_ind_right]),
+        'hemisphere': ['left']*10242 + ['right']*10242
+    })
+    mapping_df.to_csv('data_out/orig_to_fs_mapping.csv', index=False)
+
     # Extract data as numpy arrays
     FVE_df_fs_X = pd.DataFrame(index=FVE_df_old_X.index)
 
@@ -170,11 +178,10 @@ def map_to_fs(FVE_df_old_X, coords_fs_left, coords_fs_right, vertices_coords_org
         FVE_df_fs_X[new_col] = FVE_df_old_X[old_col]
 
 
-    FVE_df_fs_X = FVE_df_fs_X.reindex(sorted(FVE_df_fs_X.columns, key=lambda x: (x.split("_")[1], int(x.split("_")[0]))), axis=1)
-    FVE_df = pd.concat([FVE_df_fs_X, FVE_df_old_X[non_surface_area_vars]], axis=1)
+    FVE_df_fs_X_out = FVE_df_fs_X.reindex(sorted(FVE_df_fs_X.columns, key=lambda x: (x.split("_")[1], int(x.split("_")[0]))), axis=1)
+    FVE_df = pd.concat([FVE_df_fs_X_out, FVE_df_old_X[non_surface_area_vars]], axis=1)
 
     return FVE_df
-
 
 def input_to_graph(SurfeView_surfaces, X_df_all, y_all, non_surface_area_vars=None, fs_mapping=False,
                    partial_dat=False, partial_tsa_dat=False,  use_rois=False, bootstrap=False):
