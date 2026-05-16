@@ -3,6 +3,7 @@ GCN_data/
 GCN_models/
 FVE_old
 LR_output/
+MeanROI_output/
 data/
 net/
 rf_output/
@@ -14,10 +15,11 @@ PCA_output/
 FVE_GCN_CNN_archive.ipynb
 data_preprocessing.R
 FVE_GCN_CNN.ipynb
+FVE_GCN.ipynb
 .RData
 .Rhistory
-
-
+archive/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

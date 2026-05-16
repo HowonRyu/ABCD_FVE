@@ -1,6 +1,3 @@
-#install.packages(c("tidyverse", "GGally", "broom", "glmnet", "rsample"),lib="/data/howon/FVE/Rlibs", repos = "https://cloud.r-project.org/")
-#install.packages(c("glmnet"),lib="/data/howon/FVE/Rlibs", repos = "https://cloud.r-project.org/")
-#.libPaths("/usr/lib/R/library")
 install.packages(c("broom", "GGally", "glmnet", "rsample", "readr"))
 library(dplyr)
 library(GGally)
@@ -15,8 +12,7 @@ my_R2 = function(true, pred) {
   return(r_squared)
 }
 
-wd="/niddk-data-central/mae_hr/FVE"
-#wd="~/Projects/FVE"
+wd="."  # Set to your FVE project directory if not running from it
 
 
 ######################### LASSO and ridge #########################

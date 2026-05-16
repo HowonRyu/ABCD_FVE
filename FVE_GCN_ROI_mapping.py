@@ -128,14 +128,14 @@ else:
     brain_mapping_mean_df = pd.concat([brain_mapping_mean_df, FVE_df_org[['nihtbx_cryst_uncorrected']]], axis=1) 
 
 
-brain_mapping_mean_df.to_csv(f"/niddk-data-central/mae_hr/FVE/data_out/brain_mapping_mean_{dat_type2}.csv")
+brain_mapping_mean_df.to_csv(f"data_out/brain_mapping_mean_{dat_type2}.csv")
 
 
 from sklearn.model_selection import train_test_split
 train_valid, test = train_test_split(brain_mapping_mean_df, test_size=0.2, random_state=42)
 
-train_valid.to_csv(f"/niddk-data-central/mae_hr/FVE/data_out/brain_mapping_mean_{dat_type2}_train.csv")
-test.to_csv(f"/niddk-data-central/mae_hr/FVE/data_out/brain_mapping_mean_{dat_type2}_test.csv")
+train_valid.to_csv(f"data_out/brain_mapping_mean_{dat_type2}_train.csv")
+test.to_csv(f"data_out/brain_mapping_mean_{dat_type2}_test.csv")
 
 
 

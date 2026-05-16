@@ -3,10 +3,10 @@ import pandas as pd
 import os
 import sys
 import time
-from pathlib import Path
+
+
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score
-
 
 
 
@@ -30,16 +30,16 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
         print(f"reading in data at: {time.ctime(time.time())}", file=f)
         if m == 1:
             if partial == True:
-                test_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_test_data_partial.csv")
-                train_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_train_data_partial.csv")
+                test_dat = pd.read_csv("data_out/reg_test_data_partial.csv")
+                train_dat = pd.read_csv("data_out/reg_train_data_partial.csv")
                 x_cols = [col for col in test_dat.columns if ("_r" in col) or ("_l" in col)]
             elif partial_tsa == True:
-                test_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_test_data_partial_tsa.csv")
-                train_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_train_data_partial_tsa.csv")
+                test_dat = pd.read_csv("data_out/reg_test_data_partial_tsa.csv")
+                train_dat = pd.read_csv("data_out/reg_train_data_partial_tsa.csv")
                 x_cols = [col for col in test_dat.columns if ("_r" in col) or ("_l" in col)]
             else:
-                test_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_test_data.csv")
-                train_dat = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/reg_train_data.csv")
+                test_dat = pd.read_csv("data_out/reg_test_data.csv")
+                train_dat = pd.read_csv("data_out/reg_train_data.csv")
                 x_cols = [col for col in test_dat.columns if ("_r" in col) or ("_l" in col)]
                 x_cols.append("interview_age")
                 x_cols.append("sex_2")
@@ -59,13 +59,13 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
 
         else:
             if partial == True:
-                FVE_df = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/FVE_dat_partial.csv")
+                FVE_df = pd.read_csv("data_out/FVE_dat_partial.csv")
                 x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
             elif partial_tsa == True:
-                FVE_df = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/FVE_dat_partial_tsa.csv")
+                FVE_df = pd.read_csv("data_out/FVE_dat_partial_tsa.csv")
                 x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
             else:
-                FVE_df = pd.read_csv("/niddk-data-central/mae_hr/FVE/data_out/FVE_dat.csv")
+                FVE_df = pd.read_csv("data_out/FVE_dat.csv")
                 x_cols = [col for col in FVE_df.columns if ("_r" in col) or ("_l" in col)]
                 x_cols.append("interview_age")
                 x_cols.append("sex_2")
@@ -84,7 +84,6 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
         f.flush()
 
         mse_list, r2_list = [], []
-        all_importances = []
 
         print(f"Starting {m} bootstrap experiments, seed={seed}, n_estimators={n_estimators}", file=f, flush=True)
         print(f"Starting {m} bootstrap experiments, seed={seed}, n_estimators={n_estimators}")
@@ -109,14 +108,8 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
                 X_boot, y_boot = X.iloc[boot_indices], y.iloc[boot_indices]
                 X_oob, y_oob = X.iloc[oob_indices], y.iloc[oob_indices]
 
-            # Train
             rf_regressor = RandomForestRegressor(n_estimators=n_estimators, random_state=None if seed is None else seed + i)
             rf_regressor.fit(X_boot, y_boot)
-
-            # Extract feature importances
-            importances = rf_regressor.feature_importances_
-            all_importances.append(importances)
-
 
             y_pred = rf_regressor.predict(X_oob)
             mse = mean_squared_error(y_oob, y_pred)
@@ -135,10 +128,8 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
                 print(f"Standard Split-Mean R2 : {np.mean(r2_list):.4f} +/- {np.std(r2_list):.4f}", file=f)
                 f.flush()
             
-            #pd.Series(mse_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_MSE.csv")
-            pd.Series(r2_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_R2.csv")
-            importance_df = pd.DataFrame(all_importances, columns=x_cols)
-            importance_df.to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_importances.csv", index=False)
+            #pd.Series(mse_list).to_csv(f"rf_output/{nickname}_MSE.csv")
+            pd.Series(r2_list).to_csv(f"rf_output/{nickname}_R2.csv")
 
         print("\nFinal Bootstrap Results", file=f)
         print(f"Mean MSE: {np.mean(mse_list):.4f} +/- {np.std(mse_list):.4f}", file=f)
@@ -147,20 +138,8 @@ def rf_bootstrap(exp_name, m=100, seed=None, n_estimators=100, partial=False, pa
         print(f"Mean MSE: {np.mean(mse_list):.4f} +/- {np.std(mse_list):.4f}")
         print(f"Mean R2 : {np.mean(r2_list):.4f} +/- {np.std(r2_list):.4f}")
         
-        # save R2
-        pd.Series(r2_list).to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_R2.csv")
-
-        # save importance
-        importance_df = pd.DataFrame(all_importances, columns=x_cols)
-        importance_df.to_csv(f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_importances.csv", index=False)
-   
-        # Save feature names
-        pd.DataFrame({'feature': x_cols}).to_csv(
-            f"/niddk-data-central/mae_hr/FVE/rf_output/{nickname}_feature_names.csv", 
-            index=False
-        )
-
-
+        #pd.Series(mse_list).to_csv(f"rf_output/{nickname}_MSE.csv")
+        pd.Series(r2_list).to_csv(f"rf_output/{nickname}_R2.csv")
         print(f"Finished all runs ({time.ctime(time.time())})", file=f)
         print(f"Finished all runs ({time.ctime(time.time())})")
         f.flush()
@@ -176,12 +155,10 @@ if __name__ == "__main__":
     partial = (sys.argv[2] == "True")
     partial_tsa = (sys.argv[3] == "True")
     n_estimators = int(sys.argv[4])
-    seed = int(sys.argv[5]) if sys.argv[5] != "None" else None
+    seed = int(sys.argv[5]) if sys.argv[4] != "None" else None
     m = int(sys.argv[6])
 
     main(exp_name=exp_name, partial=partial, seed=seed, n_estimators=n_estimators, m=m, partial_tsa=partial_tsa)
-
-
 
 
 

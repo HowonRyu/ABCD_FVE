@@ -1,376 +1,221 @@
-######################################################## 
-# Generate HTML files with different views and capture screenshots
-########################################################
+################################################################################
+# Unified Brain Visualization Pipeline
+################################################################################
 
 library(R.matlab)
 library(rgl)
 library(htmltools)
+library(ggplot2)
 library(webshot2)
 library(grid)
 library(gridExtra)
 library(png)
+library(readr)
+library(gifti)
+wd = "."  # Set to your FVE project directory if not running from it
+setwd(wd)
+source("FVE_brain_vis_util.R")
 
-# Load surface data
-surfs <- readMat("data/SurfeView_surfaces.mat")
-
-# Vertices
+# Load icsurfs
+surfs             <- readMat("data/SurfeView_surfaces.mat")
 icsurfs_coords_lh <- surfs$surf.lh.pial[[1]][1:10242, ]
 icsurfs_coords_rh <- surfs$surf.rh.pial[[1]][1:10242, ]
+icsurfs_faces_lh  <- surfs$icsurfs[1,6][[1]][[1]][2][[1]]
+icsurfs_faces_rh  <- surfs$icsurfs[1,6][[1]][[1]][2][[1]] + 10242
+coords            <- rbind(icsurfs_coords_lh, icsurfs_coords_rh)
+faces             <- rbind(icsurfs_faces_lh,  icsurfs_faces_rh)
 
-# Faces
-icsurfs_faces_lh <- surfs$icsurfs[1,6][[1]][[1]][2][[1]]
-icsurfs_faces_rh <- surfs$icsurfs[1,6][[1]][[1]][2][[1]] + 10242
+# Load FreeSurfer surfaces
+surf_lh      <- read_gifti("data_out/fs_LR.10k.L.pial.surf.gii")
+surf_rh      <- read_gifti("data_out/fs_LR.10k.R.pial.surf.gii")
+coords_lh_fs <- surf_lh$data$pointset
+coords_rh_fs <- surf_rh$data$pointset
+faces_lh_fs  <- surf_lh$data$triangle + 1
+faces_rh_fs  <- surf_rh$data$triangle + 1 + 10242
+coords_fs    <- rbind(coords_lh_fs, coords_rh_fs)
+faces_fs     <- rbind(faces_lh_fs,  faces_rh_fs)
 
-# Coords and faces by combining left and right
-coords <- rbind(icsurfs_coords_lh, icsurfs_coords_rh)
-faces  <- rbind(icsurfs_faces_lh, icsurfs_faces_rh)
-
-# Configuration
-B <- 50
+# Config
+B                   <- 50
 N_VERTICES_PER_HEMI <- 10242
-N_VERTICES <- N_VERTICES_PER_HEMI * 2
-N_COVARIATES <- 2
-N_FEATURES_REGULAR <- N_VERTICES + N_COVARIATES
-N_FEATURES_PARTIAL <- N_VERTICES
+N_VERTICES          <- N_VERTICES_PER_HEMI * 2
+COLOR_GRADIENT      <- c("grey70", "grey60", "darkred", "red", "orange", "yellow2", "yellow")
+COLUMN_WIDTHS       <- c(1.5, 2, 2, 2, 2, 1.2)
 
-# Model configurations
-model_configs <- list(
-  "LASSO" = list(type = "regular", n_features = N_FEATURES_REGULAR),
-  "LASSO_partial" = list(type = "partial", n_features = N_FEATURES_PARTIAL),
-  "LASSO_partial_tsa" = list(type = "partial", n_features = N_FEATURES_PARTIAL),
-  "Ridge" = list(type = "regular", n_features = N_FEATURES_REGULAR),
-  "Ridge_partial" = list(type = "partial", n_features = N_FEATURES_PARTIAL),
-  "Ridge_partial_tsa" = list(type = "partial", n_features = N_FEATURES_PARTIAL)
+################################################################################
+# norm_method: "minmax", "quantile", or "normal"
+norm_method <- "minmax"
+################################################################################
+
+all_display_names <- list(
+  "LASSO"                  = "LASSO",
+  "LASSO_partial"          = "LASSO Partial",
+  "LASSO_partial_tsa"      = "LASSO TSA Partial",
+  "Ridge"                  = "Ridge",
+  "Ridge_partial"          = "Ridge Partial",
+  "Ridge_partial_tsa"      = "Ridge TSA Partial",
+  "RF"                     = "RF",
+  "RF_partial"             = "RF Partial",
+  "RF_partial_tsa"         = "RF TSA Partial",
+  "mapping_regular"        = "Mean per ROI",
+  "mapping_partial"        = "Mean per ROI Partial",
+  "mapping_partial_tsa"    = "Mean per ROI TSA Partial",
+  "mapping_fs_regular"     = "Mean per ROI (FS)",
+  "mapping_fs_partial"     = "Mean per ROI Partial (FS)",
+  "mapping_fs_partial_tsa" = "Mean per ROI TSA Partial (FS)",
+  "PCA_2_regular"          = "PCA (2 PCs)",
+  "PCA_2_partial"          = "PCA (2 PCs) Partial",
+  "PCA_2_partial_tsa"      = "PCA (2 PCs) TSA Partial",
+  "PCA_102_regular"        = "PCA (102 PCs)",
+  "PCA_102_partial"        = "PCA (102 PCs) Partial",
+  "PCA_102_partial_tsa"    = "PCA (102 PCs) TSA Partial",
+  "PCA_205_regular"        = "PCA (205 PCs)",
+  "PCA_205_partial"        = "PCA (205 PCs) Partial",
+  "PCA_205_partial_tsa"    = "PCA (205 PCs) TSA Partial",
+  "PCA_1024_regular"       = "PCA (1024 PCs)",
+  "PCA_1024_partial"       = "PCA (1024 PCs) Partial",
+  "PCA_1024_partial_tsa"   = "PCA (1024 PCs) TSA Partial"
 )
 
-model_display_names <- list(
-  "LASSO" = "LASSO",
-  "LASSO_partial" = "LASSO Partial",
-  "LASSO_partial_tsa" = "LASSO TSA Partial",
-  "Ridge" = "Ridge",
-  "Ridge_partial" = "Ridge Partial",
-  "Ridge_partial_tsa" = "Ridge TSA Partial",
-  "RF" = "RF",
-  "RF_partial" = "RF Partial",
-  "RF_partial_tsa" = "RF TSA Partial"
+
+
+################################################################################
+# Distribution plots
+################################################################################
+
+plot_coefficient_distributions("Full",        1, comparison_models, norm_method)
+plot_coefficient_distributions("Partial",     2, comparison_models, norm_method)
+plot_coefficient_distributions("TSA Partial", 3, comparison_models, norm_method)
+
+
+
+################################################################################
+# Brain visualization per model family
+################################################################################
+
+visualize_brain_models(
+  model_family        = "LASSO",
+  model_names         = c("LASSO", "LASSO_partial", "LASSO_partial_tsa"),
+  model_display_names = all_display_names,
+  output_dir          = "LR_output",
+  table_filename      = "LASSO_brain_views_table.png",
+  get_vals_function   = get_lr_vals,
+  norm_method         = norm_method
 )
 
-# Function to create HTML with specific view angle
-create_brain_html <- function(vals, output_file, title, view_angle, ceiling_quantile = 0.90) {
-  
-  # Create colormap
-  col_fun <- colorRampPalette(c("white", "darkgreen"))(1000)
-  
-  vmin <- 0
-  p_ceiling <- quantile(vals, ceiling_quantile)
-  vmax <- max(vals)
-  
-  # Create breaks and colors
-  breaks <- seq(vmin, p_ceiling, length.out = length(col_fun) + 1)
-  colors <- col_fun[pmin(cut(vals, breaks = breaks, include.lowest = TRUE, labels = FALSE), length(col_fun))]
-  
-  # Create 3D visualization
-  open3d()
-  shade3d(
-    tmesh3d(vertices = t(coords), indices = t(faces), homogeneous = FALSE),
-    color = colors,
-    meshColor = "vertices"
+visualize_brain_models(
+  model_family        = "Ridge",
+  model_names         = c("Ridge", "Ridge_partial", "Ridge_partial_tsa"),
+  model_display_names = all_display_names,
+  output_dir          = "LR_output",
+  table_filename      = "Ridge_brain_views_table.png",
+  get_vals_function   = get_lr_vals,
+  norm_method         = norm_method
+)
+
+visualize_brain_models(
+  model_family        = "Random Forest",
+  model_names         = c("RF", "RF_partial", "RF_partial_tsa"),
+  model_display_names = all_display_names,
+  output_dir          = "rf_output",
+  table_filename      = "RF_brain_views_table.png",
+  get_vals_function   = get_rf_vals,
+  norm_method         = norm_method
+)
+
+visualize_brain_models(
+  model_family        = "Mean per ROI (FreeSurfer)",
+  model_names         = c("mapping_fs_regular", "mapping_fs_partial", "mapping_fs_partial_tsa"),
+  model_display_names = all_display_names,
+  output_dir          = "MeanROI_output",
+  table_filename      = "MeanPerROI_FS_brain_views_table.png",
+  get_vals_function   = get_mapping_fs_vals,
+  use_freesurfer      = TRUE,
+  norm_method         = norm_method
+)
+
+#visualize_brain_models(
+#  model_family        = "PCA (2 PCs)",
+#  model_names         = c("PCA_2_regular", "PCA_2_partial", "PCA_2_partial_tsa"),
+#  model_display_names = all_display_names,
+#  output_dir          = "PCA_output",
+#  table_filename      = "PCA_2_brain_views_table.png",
+#  get_vals_function   = get_pca_vals,
+#  norm_method         = norm_method
+#)
+
+#visualize_brain_models(
+#  model_family        = "PCA (102 PCs)",
+#  model_names         = c("PCA_102_regular", "PCA_102_partial", "PCA_102_partial_tsa"),
+#  model_display_names = all_display_names,
+#  output_dir          = "PCA_output",
+#  table_filename      = "PCA_102_brain_views_table.png",
+#  get_vals_function   = get_pca_vals,
+#  norm_method         = norm_method
+#)
+
+# visualize_brain_models(
+#   model_family        = "PCA (205 PCs)",
+#   model_names         = c("PCA_205_regular", "PCA_205_partial", "PCA_205_partial_tsa"),
+#   model_display_names = all_display_names,
+#   output_dir          = "PCA_output",
+#   table_filename      = "PCA_205_brain_views_table.png",
+#   get_vals_function   = get_pca_vals,
+#   norm_method         = norm_method
+# )
+
+#visualize_brain_models(
+#  model_family        = "PCA (1024 PCs)",
+#  model_names         = c("PCA_1024_regular", "PCA_1024_partial", "PCA_1024_partial_tsa"),
+#  model_display_names = all_display_names,
+#  output_dir          = "PCA_output",
+#  table_filename      = "PCA_1024_brain_views_table.png",
+#  get_vals_function   = get_pca_vals,
+#  norm_method         = norm_method
+#)
+
+################################################################################
+# Cross-model comparison
+################################################################################
+
+comparison_models <- list(
+  "Mean per ROI" = list(
+    model_names       = c("mapping_fs_regular", "mapping_fs_partial", "mapping_fs_partial_tsa"),
+    output_dir        = "MeanROI_output",
+    get_vals_function = get_mapping_fs_vals
+  ),
+  "LASSO" = list(
+    model_names       = c("LASSO", "LASSO_partial", "LASSO_partial_tsa"),
+    output_dir        = "LR_output",
+    get_vals_function = get_lr_vals
+  ),
+  "Ridge" = list(
+    model_names       = c("Ridge", "Ridge_partial", "Ridge_partial_tsa"),
+    output_dir        = "LR_output",
+    get_vals_function = get_lr_vals
+  ), 
+  "Random Forest" = list(
+    model_names       = c("RF", "RF_partial", "RF_partial_tsa"),
+    output_dir        = "rf_output",
+    get_vals_function = get_rf_vals
   )
-  
-  # Set view angle
-  if (view_angle == "front") {
-    view3d(theta = 0, phi = 0, zoom = 0.7)
-  } else if (view_angle == "left") {
-    view3d(theta = -90, phi = 0, zoom = 0.7)
-  } else if (view_angle == "right") {
-    view3d(theta = 90, phi = 0, zoom = 0.7)
-  } else if (view_angle == "back") {
-    view3d(theta = 180, phi = 0, zoom = 0.7)
-  }
-  
-  rgl_obj <- rglwidget(width = 600, height = 600)
-  
-  # Create HTML without title for cleaner screenshot
-  html_output <- browsable(
-    tagList(
-      tags$div(
-        style = "display:flex; flex-direction:row; align-items:center; justify-content:center;",
-        rgl_obj
-      )
-    )
-  )
-  
-  # Save to HTML file
-  save_html(html_output, file = output_file)
-  
-  close3d()
-}
-
-######################################################## 
-# Process LASSO models
-########################################################
-
-lr_output_dir <- "LR_output"
-lasso_models <- c("LASSO", "LASSO_partial", "LASSO_partial_tsa")
-
-# Store vals for colorbar
-lasso_vals_list <- list()
-
-for (model_type in lasso_models) {
-  
-  coef_file <- file.path(lr_output_dir, paste0("coefficients_", model_type, "_boot", B, ".csv"))
-  
-  if (!file.exists(coef_file)) {
-    next
-  }
-  
-  coef_data <- read.csv(coef_file)
-  config <- model_configs[[model_type]]
-  
-  # Exclude age and sex for regular models
-  if (config$type == "regular") {
-    coef_data <- coef_data[1:N_VERTICES, ]
-  }
-  
-  # Calculate mean absolute coefficient
-  coef_cols <- coef_data[, grep("^b[0-9]+$", colnames(coef_data))]
-  mean_coef_array <- rowMeans(abs(coef_cols))
-  
-  # Split into hemispheres
-  lh_coefs <- mean_coef_array[1:N_VERTICES_PER_HEMI]
-  rh_coefs <- mean_coef_array[(N_VERTICES_PER_HEMI + 1):N_VERTICES]
-  vals <- c(lh_coefs, rh_coefs)
-  
-  # Store vals for colorbar
-  lasso_vals_list[[model_type]] <- vals
-  
-  # Create HTML for each view
-  for (view in c("front", "left", "right", "back")) {
-    html_file <- file.path(lr_output_dir, "vis_output", 
-                           paste0(model_type, "_brain_", view, ".html"))
-    create_brain_html(vals, html_file, 
-                      paste(model_display_names[[model_type]], "-", toupper(view)), 
-                      view)
-    
-    # Capture screenshot
-    png_file <- file.path(lr_output_dir, "vis_output", 
-                          paste0(model_type, "_brain_", view, ".png"))
-    webshot(html_file, png_file, vwidth = 800, vheight = 800, delay = 3)
-  }
-}
-
-######################################################## 
-# Process Ridge models
-########################################################
-
-ridge_models <- c("Ridge", "Ridge_partial", "Ridge_partial_tsa")
-
-# Store vals for colorbar
-ridge_vals_list <- list()
-
-for (model_type in ridge_models) {
-  
-  coef_file <- file.path(lr_output_dir, paste0("coefficients_", model_type, "_boot", B, ".csv"))
-  
-  if (!file.exists(coef_file)) {
-    next
-  }
-  
-  coef_data <- read.csv(coef_file)
-  config <- model_configs[[model_type]]
-  
-  # Exclude age and sex for regular models
-  if (config$type == "regular") {
-    coef_data <- coef_data[1:N_VERTICES, ]
-  }
-  
-  # Calculate mean absolute coefficient
-  coef_cols <- coef_data[, grep("^b[0-9]+$", colnames(coef_data))]
-  mean_coef_array <- rowMeans(abs(coef_cols))
-  
-  # Split into hemispheres
-  lh_coefs <- mean_coef_array[1:N_VERTICES_PER_HEMI]
-  rh_coefs <- mean_coef_array[(N_VERTICES_PER_HEMI + 1):N_VERTICES]
-  vals <- c(lh_coefs, rh_coefs)
-  
-  # Store vals for colorbar
-  ridge_vals_list[[model_type]] <- vals
-  
-  # Create HTML for each view
-  for (view in c("front", "left", "right", "back")) {
-    html_file <- file.path(lr_output_dir, "vis_output", 
-                           paste0(model_type, "_brain_", view, ".html"))
-    create_brain_html(vals, html_file, 
-                      paste(model_display_names[[model_type]], "-", toupper(view)), 
-                      view)
-    
-    # Capture screenshot
-    png_file <- file.path(lr_output_dir, "vis_output", 
-                          paste0(model_type, "_brain_", view, ".png"))
-    webshot(html_file, png_file, vwidth = 800, vheight = 800, delay = 3)
-  }
-}
-
-######################################################## 
-# Process RF models
-########################################################
-
-rf_output_dir <- "rf_output"
-
-rf_models <- list(
-  list(file = "rf_importance.csv", name = "RF"),
-  list(file = "rf_partial_importance.csv", name = "RF_partial"),
-  list(file = "rf_partial_tsa_importance.csv", name = "RF_partial_tsa")
 )
 
-# Store vals for colorbar
-rf_vals_list <- list()
+create_cross_model_comparison("Full",        1, comparison_models, norm_method)
+create_cross_model_comparison("Partial",     2, comparison_models, norm_method)
+create_cross_model_comparison("TSA Partial", 3, comparison_models, norm_method)
 
-for (model in rf_models) {
-  
-  feature_importance_file <- file.path(rf_output_dir, model$file)
-  
-  if (!file.exists(feature_importance_file)) {
-    next
-  }
-  
-  # Load data
-  feature_data <- read.csv(feature_importance_file)
-  feature_data <- feature_data[, -1]
-  
-  # Exclude age and sex if present
-  if (ncol(feature_data) == N_VERTICES + 2) {
-    feature_data <- feature_data[, 1:N_VERTICES]
-  }
-  
-  # Calculate mean importance
-  mean_importance <- colMeans(feature_data)
-  vals <- mean_importance
-  
-  # Store vals for colorbar
-  rf_vals_list[[model$name]] <- vals
-  
-  # Create HTML for each view
-  for (view in c("front", "left", "right", "back")) {
-    html_file <- file.path(rf_output_dir, "vis_output", 
-                           paste0(model$name, "_brain_", view, ".html"))
-    create_brain_html(vals, html_file, 
-                      paste(model_display_names[[model$name]], "-", toupper(view)), 
-                      view)
-    
-    # Capture screenshot
-    png_file <- file.path(rf_output_dir, "vis_output", 
-                          paste0(model$name, "_brain_", view, ".png"))
-    webshot(html_file, png_file, vwidth = 800, vheight = 800, delay = 3)
-  }
-}
 
-######################################################## 
-# Create combined plot tables
-########################################################
+################################################################################
+# Bootstrap correlation analysis 
+################################################################################
 
-create_plot_table <- function(model_family, model_names, output_dir, save_path, vals_list) {
-  
-  # Create a list to store grobs
-  plot_list <- list()
-  
-  # Add column headers
-  plot_list[[1]] <- textGrob("Model", gp = gpar(fontsize = 14, fontface = "bold"))
-  plot_list[[2]] <- textGrob("Front", gp = gpar(fontsize = 14, fontface = "bold"))
-  plot_list[[3]] <- textGrob("Left", gp = gpar(fontsize = 14, fontface = "bold"))
-  plot_list[[4]] <- textGrob("Right", gp = gpar(fontsize = 14, fontface = "bold"))
-  plot_list[[5]] <- textGrob("Bottom", gp = gpar(fontsize = 14, fontface = "bold"))
-  plot_list[[6]] <- textGrob("Colorbar", gp = gpar(fontsize = 14, fontface = "bold"))
-  
-  # Add rows
-  for (i in 1:length(model_names)) {
-    model_name <- model_names[i]
-    display_name <- model_display_names[[model_name]]
-    
-    # Model name
-    plot_list[[length(plot_list) + 1]] <- textGrob(display_name, gp = gpar(fontsize = 12))
-    
-    # Load and add images
-    for (view in c("front", "left", "right", "back")) {
-      img_path <- file.path(output_dir, "vis_output", paste0(model_name, "_brain_", view, ".png"))
-      
-      cat("Looking for image:", img_path, "- Exists:", file.exists(img_path), "\n")
-      
-      if (file.exists(img_path)) {
-        img <- readPNG(img_path)
-        
-        # Rotate left and right images 90 degrees
-        if (view == "left") {
-          # Rotate 90 degrees clockwise (left)
-          img <- aperm(img, c(2, 1, 3))
-          img <- img[nrow(img):1, , ]
-        } else if (view == "right") {
-          # Rotate 90 degrees counter-clockwise (right)
-          img <- aperm(img, c(2, 1, 3))
-          img <- img[, ncol(img):1, ]
-        }
-        
-        plot_list[[length(plot_list) + 1]] <- rasterGrob(img, interpolate = TRUE)
-      } else {
-        plot_list[[length(plot_list) + 1]] <- textGrob("N/A")
-      }
-    }
-    
-    # Add colorbar for this row
-    vals <- vals_list[[model_name]]
-    if (!is.null(vals)) {
-      vmin <- min(vals)
-      vmax <- max(vals)
-      p75 <- quantile(vals, 0.75)
-      p50 <- quantile(vals, 0.50)
-      p25 <- quantile(vals, 0.25)
-      
-      # Create colorbar grob (smaller)
-      gradient_colors <- colorRampPalette(c("white", "darkgreen"))(100)
-      y_coords <- seq(0.1, 0.9, length.out = 100)
-      
-      colorbar_plot <- gTree(children = gList(
-        rectGrob(x = 0.15, y = y_coords, width = 0.05, height = 0.8/100,
-                 gp = gpar(fill = gradient_colors, col = NA)),
-        textGrob(sprintf("%.4f", vmax), x = 0.22, y = 0.90, just = "left", gp = gpar(fontsize = 7)),
-        textGrob(sprintf("%.4f", p75), x = 0.22, y = 0.75, just = "left", gp = gpar(fontsize = 6)),
-        textGrob(sprintf("%.4f", p50), x = 0.22, y = 0.50, just = "left", gp = gpar(fontsize = 6)),
-        textGrob(sprintf("%.4f", p25), x = 0.22, y = 0.25, just = "left", gp = gpar(fontsize = 6)),
-        textGrob(sprintf("%.4f", vmin), x = 0.22, y = 0.10, just = "left", gp = gpar(fontsize = 7))
-      ))
-      
-      plot_list[[length(plot_list) + 1]] <- colorbar_plot
-    } else {
-      plot_list[[length(plot_list) + 1]] <- textGrob("N/A")
-    }
-  }
-  
-  # Arrange in grid
-  png(save_path, width = 2800, height = 850 * length(model_names), res = 150)
-  grid.arrange(grobs = plot_list, ncol = 6, 
-               widths = c(1, 2, 2, 2, 2, 1.2),
-               top = textGrob(paste(model_family, "Models - Brain Visualizations"), 
-                              gp = gpar(fontsize = 16, fontface = "bold")))
-  dev.off()
-}
+#corr_results_full    <- compute_bootstrap_correlations(comparison_models, formulation_index = 1)
+#corr_results_partial <- compute_bootstrap_correlations(comparison_models, formulation_index = 2)
+#corr_results_tsa     <- compute_bootstrap_correlations(comparison_models, formulation_index = 3)
 
-# Create LASSO table
-create_plot_table("LASSO", 
-                  c("LASSO", "LASSO_partial", "LASSO_partial_tsa"), 
-                  lr_output_dir,
-                  file.path(lr_output_dir, "vis_output", "LASSO_brain_views_table.png"),
-                  lasso_vals_list)
+plot_bootstrap_correlations(corr_results_full,    norm_method, formulation_type = "Full")
+plot_bootstrap_correlations(corr_results_partial, norm_method, formulation_type = "Partial")
+plot_bootstrap_correlations(corr_results_tsa,     norm_method, formulation_type = "TSA Partial")
 
-# Create Ridge table
-create_plot_table("Ridge", 
-                  c("Ridge", "Ridge_partial", "Ridge_partial_tsa"), 
-                  lr_output_dir,
-                  file.path(lr_output_dir, "vis_output", "Ridge_brain_views_table.png"),
-                  ridge_vals_list)
 
-# Create RF table
-create_plot_table("Random Forest", 
-                  c("RF", "RF_partial", "RF_partial_tsa"), 
-                  rf_output_dir,
-                  file.path(rf_output_dir, "vis_output", "RF_brain_views_table.png"),
-                  rf_vals_list)

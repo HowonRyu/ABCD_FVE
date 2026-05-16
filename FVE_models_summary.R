@@ -1,38 +1,11 @@
-#wd <- "/niddk-data-central/mae_hr/FVE"
-wd <- "~/Projects/FVE"
-
-#################################   PINV    ###################################   
-
-load("~/Projects/FVE/run_output_local/_method1_dict_ds.RData")
-method1_dict
+wd <- "."  # Set to your FVE project directory if not running from it
 
 
-load("~/Projects/FVE/run_output_local/PINV_method2_dict_ds.RData")
-method2_dict
 
-load("~/Projects/FVE/run_output_local/PINV_result_tbl_boot_ds.Rdata")
-result_tbl_boot
-
-range(reg_test_data)
-range(reg_train_data %>% select(-nihtbx_cryst_uncorrected, -sex_2, -interview_age))
-
-
-  
-range(lin_reg_train_data$nihtbx_cryst_uncorrected)
-
-################################# LR result ################################# 
-load("~/Projects/FVE/LR_output/new/LR_result_tbl_boot100.Rdata") # table
-
-result_tbl_boot
-
-
-load("~/Projects/FVE/LR_output/new/LR_result_dict_boot100.Rdata")
-
-result_dict_boot$Ridge_partial_tsa_test_r2
-
-################################# LR coefficient map ################################# 
-
-load("~/Projects/FVE/LR_output/LR_all_models_boot100.Rdata") # all the models
+################################################################################
+################################# LR coefficient map ###########################
+################################################################################
+load(file.path(wd, "LR_output/LR_all_models_boot100.Rdata")) # all the models
 all_models
 
 
@@ -250,12 +223,14 @@ browsable(
   )
 )
 
-##################################V2
 
 
-################################# PCA result ################################# 
+################################################################################
+################################# PCA result ###################################
+################################################################################
+
 library(tidyverse)
-setwd("~/Projects/FVE")
+setwd(wd)
 reg_train_data_org_lin = read_csv("data_out/lin_reg_train_data.csv") #9080 rows
 
 par(mfrow=c(1,1))
@@ -267,7 +242,7 @@ plot(as.numeric(reg_train_data_org_lin$interview_age), train_pca$x[,1],
 
 
 ####### attempt 1: projected PCs
-load("~/Projects/FVE/PCA_output/result_tbl_boot_50_1013.Rdata")
+load(file.path(wd, "PCA_output/result_tbl_boot_50_1013.Rdata"))
 
 result_tbl_boot
 
@@ -294,8 +269,8 @@ legend("top", legend=c("train", "test"), col=c("blue", "blue"), lty=c(1, 4))
 
 
 ## individual look
-load("~/Projects/FVE/PCA_output/PCA_partial_train_result.Rdata")
-load("~/Projects/FVE/PCA_output/PCA_partial_test_result.Rdata")
+load(file.path(wd, "PCA_output/PCA_partial_train_result.Rdata"))
+load(file.path(wd, "PCA_output/PCA_partial_test_result.Rdata"))
 reg_data_org_partial = read_csv("data_out/reg_train_data_partial.csv")
 reg_test_data_org_partial = read_csv("data_out/reg_test_data_partial.csv")
 
@@ -309,43 +284,42 @@ plot(train_pca_p$x[,1], train_pca_p$x[,2], xlim=c(-350,300), ylim=c(-150,150),
 
 
 ####### attempt 2 separate PCs
-load("~/Projects/FVE/PCA_output/result_tbl_boot_alt_50_1013.Rdata")
+load(file.path(wd, "PCA_output/result_tbl_boot_alt_50_1013.Rdata"))
 result_tbl_boot
 
 
-
-############################################### Result summary plot
-library(tidyverse)
-
+################################################################################
+################################### Result summary plot ########################
+################################################################################
 df <- tribble(
   ~Model, ~Formulation, ~Variables, ~MeanFVE, ~SD,
-  "Linear Regression", "full", "TSA", 0.1370, 0.0188,
-  "Linear Regression", "partial", "TSA", 0.0745, 0.0140,
-  "Linear Regression", "partial TSA", "TSA", 0, 0,
+  "TSA Linear Regression", "full", "TSA", 0.1370, 0.0188,
+  "TSA Linear Regression", "partial", "TSA", 0.0745, 0.0140,
+  "TSA Linear Regression", "partial TSA", "TSA", 0, 0,
   
-  "Mean per ROI + Lin. Regression", "full", "63 ROIs", 0.1453, 0.0168,
-  "Mean per ROI + Lin. Regression", "partial", "63 ROIs", 0.0837, 0.0159,
-  "Mean per ROI + Lin. Regression", "partial TSA", "63 ROIs", 0.0103, 0.0094,
+  "TSA Quadratic Regression", "full", "TSA + TSA²", 0.1397, 0.0192,
+  "TSA Quadratic Regression", "partial", "TSA + TSA²", 0.0772, 0.0140,
+  "TSA Quadratic Regression", "partial TSA", "TSA + TSA²", 0, 0,
   
-  "PCA1 + Lin. Regression", "full", "PCs", 0.0561, 0.0108,
-  "PCA1 + Lin. Regression", "partial", "PCs", 0.0687, 0.0131,
-  "PCA1 + Lin. Regression", "partial TSA", "PCs", -0.0010, 0.0011,
+  "Mean per ROI Regression", "full", "63 ROIs", 0.1433, 0.0161,
+  "Mean per ROI Regression", "partial", "63 ROIs", 0.0796, 0.0163,
+  "Mean per ROI Regression", "partial TSA", "63 ROIs", 0.0103, 0.0093,
   
-  "PCA2 + Lin. Regression", "full", "PCs", 0.0558, 0.0109,
-  "PCA2 + Lin. Regression", "partial", "PCs", 0.0685, 0.0132,
-  "PCA2 + Lin. Regression", "partial TSA", "PCs", -0.0013, 0.0012,
+  "PCR (2 PCs)", "full", "PCs", 0.0558, 0.0109,
+  "PCR (2 PCs)", "partial", "PCs", 0.0685, 0.0132,
+  "PCR (2 PCs)", "partial TSA", "PCs", -0.0013, 0.0012,
   
-  "PCA3 + Lin. Regression", "full", "PCs", 0.0865, 0.0162,
-  "PCA3 + Lin. Regression", "partial", "PCs", 0.0964, 0.0179,
-  "PCA3 + Lin. Regression", "partial TSA", "PCs", 0.0250, 0.0136,
+  "PCR (102 PCs)", "full", "PCs", 0.0865, 0.0162,
+  "PCR (102 PCs)", "partial", "PCs", 0.0964, 0.0179,
+  "PCR (102 PCs)", "partial TSA", "PCs", 0.0250, 0.0136,
   
-  "PCA4 + Lin. Regression", "full", "PCs", 0.0860, 0.0194,
-  "PCA4 + Lin. Regression", "partial", "PCs", 0.0924, 0.0187,
-  "PCA4 + Lin. Regression", "partial TSA", "PCs", 0.0211, 0.0163,
+  "PCR (205 PCs)", "full", "PCs", 0.0860, 0.0194,
+  "PCR (205 PCs)", "partial", "PCs", 0.0924, 0.0187,
+  "PCR (205 PCs)", "partial TSA", "PCs", 0.0211, 0.0163,
   
-  "PCA5 + Lin. Regression", "full", "PCs", 0.0611, 0.0274,
-  "PCA5 + Lin. Regression", "partial", "PCs", -0.0108, 0.0276,
-  "PCA5 + Lin. Regression", "partial TSA", "PCs", -0.0925, 0.0298,
+  "PCR (1024 PCs)", "full", "PCs", 0.0611, 0.0274,
+  "PCR (1024 PCs)", "partial", "PCs", -0.0108, 0.0276,
+  "PCR (1024 PCs)", "partial TSA", "PCs", -0.0925, 0.0298,
   
   "LASSO", "full", "20,484 vertices", 0.1589, 0.0193,
   "LASSO", "partial", "20,484 vertices", 0.0934, 0.0195,
@@ -355,13 +329,13 @@ df <- tribble(
   "Ridge", "partial", "20,484 vertices", 0.1006, 0.0178,
   "Ridge", "partial TSA", "20,484 vertices", 0.0169, 0.0162,
   
-  "Random Forest", "full", "20,484 vertices", 0.1315, 0.0101,
-  "Random Forest", "partial", "20,484 vertices", 0.0940, 0.0078,
-  "Random Forest", "partial TSA", "20,484 vertices", 0.0218, 0.0054,
+  "Random Forest", "full", "20,484 vertices", 0.1281, 0.0087,
+  "Random Forest", "partial", "20,484 vertices", 0.0920, 0.0079,
+  "Random Forest", "partial TSA", "20,484 vertices", 0.0204, 0.0055,
   
-  "GCN1", "full", "63 ROIs", 0.0569, 0.1285,
-  "GCN1", "partial", "63 ROIs", 0.0326, 0.0391,
-  "GCN1", "partial TSA", "63 ROIs", -0.0096, 0.0107
+  "GCN", "full", "63 ROIs", 0.0569, 0.1285,
+  "GCN", "partial", "63 ROIs", 0.0326, 0.0391,
+  "GCN", "partial TSA", "63 ROIs", -0.0096, 0.0107
 )
 
 formulation_order <- c(
@@ -371,28 +345,28 @@ formulation_order <- c(
 )
 
 model_order <- c(
-  "Linear Regression",
-  "Mean per ROI + Lin. Regression",
-  "PCA1 + Lin. Regression",
-  "PCA2 + Lin. Regression",
-  "PCA3 + Lin. Regression",
-  "PCA4 + Lin. Regression",
-  "PCA5 + Lin. Regression",
+  "TSA Linear Regression",
+  "TSA Quadratic Regression",
+  "Mean per ROI Regression",
+  "PCR (2 PCs)",
+  "PCR (102 PCs)",
+  "PCR (205 PCs)",
+  "PCR (1024 PCs)",
   "LASSO",
   "Ridge",
   "Random Forest",
-  "GCN1"
+  "GCN"
 )
 
 df <- df %>%
   mutate(
     Formulation = factor(Formulation, 
                          levels = formulation_order,
-                         labels = c("regular", "partial", "TSA partial")),
+                         labels = c("full", "partial", "TSA partial")),
     Model = factor(Model, levels = model_order)
   )
 
-ggplot(
+plot_sub = ggplot(
   df,
   aes(
     x = Formulation,
@@ -410,25 +384,23 @@ ggplot(
     width = 0.1
   ) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  facet_wrap(~ Model, scales = "free_x") +
+  facet_wrap(~ Model, nrow = 3, ncol = 4) +
   labs(
     y = "Fraction of Variance Explained (Mean +/- 2 SD)",
-    x = "Model formulation type"
+    x = ""
   ) +
   theme_bw(base_size = 12) +
   theme(
     strip.text = element_text(face = "bold", size = 10),      
-    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 9),  
-    axis.text.y = element_text(size = 9),                   
-    axis.title = element_text(size = 8),                   
-    panel.grid.major.x = element_blank()
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),  
+    axis.text.y = element_text(size = 12),                   
+    axis.title.y = element_text(size = 14),  
+    #axis.title.x = element_text(size = 14),   
+    panel.grid.major.x = element_blank(),
+    plot.margin = margin(t = 5, r = 5, b = 10, l = 5, unit = "pt")
   )
+plot_sub
 
-
-
-
-
-
-
+ggsave("manuscript_plots/summary_fig.png", plot = plot_sub, units="in", width = 10, height = 6.5, dpi = 600)
 
 

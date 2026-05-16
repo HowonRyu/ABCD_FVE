@@ -1,7 +1,9 @@
-library(tidyverse)
-library(car)
-library(ggplot2)
+library(dplyr)
 library(GGally)
+library(broom)
+library(glmnet)
+library(rsample)
+
 
 my_R2 = function(true, pred) {
   ss_res <- sum((true - pred)^2)
@@ -10,38 +12,22 @@ my_R2 = function(true, pred) {
   return(r_squared)
 }
 
-
+setwd(".")  # Set to your FVE project directory if not running from it
 ################################################################################
 ################### CV for var(error) estimation    ############################
 ################################################################################
 
 # Data load
-reg_train_data_org = read_csv("data_out/reg_train_data.csv") #9083 rows
-reg_test_data_org = read_csv("data_out/reg_test_data.csv") #2271 
+reg_train_data_org = read_csv("data_out/lin_reg_train_data.csv") #9083 rows
+reg_test_data_org = read_csv("data_out/lin_reg_test_data.csv") #2271 
 
 
 
-c3_exclude = TRUE
-if (c3_exclude) {
-  reg_train_data = reg_train_data_org[reg_train_data_org$demo_sex_v2.x != 3,] #exclude sex=3 9,080 rows
-  reg_test_data = reg_test_data_org[reg_test_data_org$demo_sex_v2.x != 3,] #exclude sex=3 2271 rows, no sex3
-} else {
-  reg_train_data = reg_train_data_org
-  reg_test_data = reg_test_data_org
-}
-
-reg_data_org = rbind(reg_train_data, reg_test_data)
-
-
-
-# rename
-reg_data_org$demo_sex_v2.x = as.factor(reg_data_org$demo_sex_v2.x)
-colnames(reg_data_org)[1] = "index"
-colnames(reg_data_org)[3] = "sex"
+reg_data_org = rbind(reg_train_data_org, reg_test_data_org)
 
 
 # set numbers for cross validation
-run_again=FALSE
+run_again=TRUE
 
 
 
@@ -150,7 +136,7 @@ if (run_again==TRUE) {
 method2_dict = list()
 M_list = c(20, 40, 60, 80, 100)
 
-if run_again==TRUE {
+if (run_again==TRUE) {
   print(paste0("Start running at:", Sys.time()))
   for (J_index in seq_along(J_list)) {
     J = J_list[[J_index]] 
@@ -282,7 +268,7 @@ if run_again==TRUE {
 ##########################  Var estimation Bootstrap  ########################## 
 
 # Bootstrap sampling
-B = 200
+B = 50
 set.seed(1004)
 boot_samples <- bootstraps(reg_data_org, times = B)
 
@@ -297,6 +283,10 @@ resid2_test_r2 = c()
 
 # Loop through each bootstrap resample
 for (b in 1:B) {
+  test_ratio = 0.2
+  n = nrow(reg_data_org)
+  n1 = as.integer(n*(1-test_ratio))
+  n2 = n-n1
   print(paste0("B=",b,"/", B," start at ",Sys.time()))
   split <- boot_samples$splits[[b]]
   reg_train_data <- analysis(split)      # In-bag
@@ -304,15 +294,15 @@ for (b in 1:B) {
   reg_test_data <- oob_samples %>% slice_sample(n = n2, replace = TRUE)
   
   ### regular analysis
-  model_covar <- lm(nihtbx_cryst_uncorrected ~ sex + interview_age , data=reg_train_data)
+  model_covar <- lm(nihtbx_cryst_uncorrected ~ sex_2 + interview_age , data=reg_train_data)
   model_surface <- lm(nihtbx_cryst_uncorrected ~ total_surface_area, data=reg_train_data)
-  model_all <- lm(nihtbx_cryst_uncorrected ~sex +  interview_age + total_surface_area , data=reg_train_data)
-  model_all_quad <- lm(nihtbx_cryst_uncorrected ~sex +  interview_age + total_surface_area +I(total_surface_area^2), data=reg_train_data)
+  model_all <- lm(nihtbx_cryst_uncorrected ~sex_2 +  interview_age + total_surface_area , data=reg_train_data)
+  model_all_quad <- lm(nihtbx_cryst_uncorrected ~sex_2 +  interview_age + total_surface_area +I(total_surface_area^2), data=reg_train_data)
   
   ### partial analysis
   reg_train_data_partial = reg_train_data
-  reg_train_data_partial$total_surface_area =  lm(total_surface_area ~ sex + interview_age, data=reg_train_data)$resid
-  reg_train_data_partial$nihtbx_cryst_uncorrected = lm(nihtbx_cryst_uncorrected ~ sex + interview_age, data=reg_train_data)$resid
+  reg_train_data_partial$total_surface_area =  lm(total_surface_area ~ sex_2 + interview_age, data=reg_train_data)$resid
+  reg_train_data_partial$nihtbx_cryst_uncorrected = lm(nihtbx_cryst_uncorrected ~ sex_2 + interview_age, data=reg_train_data)$resid
   
   # (y~ age+Sex) ~ (tsa ~ age+sex)
   model_partial1 <- lm(nihtbx_cryst_uncorrected ~ total_surface_area, data=reg_train_data_partial)
@@ -321,8 +311,8 @@ for (b in 1:B) {
   
   ## Test data
   reg_test_data_partial = reg_test_data
-  reg_test_data_partial$total_surface_area =  lm(total_surface_area ~ sex + interview_age, data=reg_test_data)$resid
-  reg_test_data_partial$nihtbx_cryst_uncorrected = lm(nihtbx_cryst_uncorrected ~ sex + interview_age, data=reg_test_data)$resid
+  reg_test_data_partial$total_surface_area =  lm(total_surface_area ~ sex_2 + interview_age, data=reg_test_data)$resid
+  reg_test_data_partial$nihtbx_cryst_uncorrected = lm(nihtbx_cryst_uncorrected ~ sex_2 + interview_age, data=reg_test_data)$resid
   
   test_y_true = reg_test_data$nihtbx_cryst_uncorrected
   test_y_true_partial = reg_test_data_partial$nihtbx_cryst_uncorrected
@@ -361,7 +351,7 @@ result_tbl_boot[, c(2,4)] <- round(result_tbl_boot[, c(2,4)], 4)
 print(result_tbl_boot)
 
 save(result_tbl_boot, file="result_tbl_boot.Rdata")
-
+0.0697+ 0.0551
 
 ##################### J and M combination simulation vis. ####################### 
 

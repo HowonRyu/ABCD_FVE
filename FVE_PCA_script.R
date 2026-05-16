@@ -1,9 +1,8 @@
-install.packages(c("dplyr", "rsample"))
+#install.packages(c("dplyr", "rsample"))
 library(dplyr)
 #library(readr)
 library(rsample)
 #library(tidyverse)
-#.libPaths("/data/howon/FVE/Rlibs")
 
 my_R2 = function(true, pred) {
   ss_res <- sum((true - pred)^2)
@@ -12,8 +11,6 @@ my_R2 = function(true, pred) {
   return(r_squared)
 }
 
-wd="/niddk-data-central/mae_hr/FVE"
-#wd="~/Projects/FVE"
 
 ######################### PCA #########################
 # For bootstrapping
@@ -127,7 +124,7 @@ proc_pca_output <- function(train_df, test_df, pca_train_output, pca_test_output
 B = 50
 seed = 1013
 set.seed(seed)
-n_pcs = 1024   #counter so far: n_pcs=2, 102
+n_pcs = 1   #counter so far: n_pcs=2, 
 nickname = paste0(n_pcs, "_", B, "_", seed)
 
 
